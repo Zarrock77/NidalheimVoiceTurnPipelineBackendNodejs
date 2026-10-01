@@ -39,7 +39,7 @@
     "url": "git+https://github.com/Zarrock77/NidalheimVoiceTurnPipelineBackendNodejs.git"
   },
   "dependencies": {
-    "@deepgram/sdk": "^3.11.0"
+    "@deepgram/sdk": "^5.13.0"
   },
   "peerDependencies": {
     "ws": "^8.22.0"
