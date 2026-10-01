@@ -111,6 +111,14 @@ Events `VoiceTurnSession` sends back via `send`:
 base class. Swap in Azure/Google STT or any other TTS vendor by implementing the
 interface and passing an instance in.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and PRs welcome.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability privately.
+
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
