@@ -34,6 +34,9 @@ in CI on every push and pull request.
 
 ## Pull requests
 
+Dependabot pull requests for npm dependencies and GitHub Actions follow the same
+contribution workflow and require green CI checks before merging.
+
 - Keep them small and focused — one logical change per PR.
 - Describe what changed and why; link any related issue.
 - A PR that changes behavior should update `README.md` if the public API or usage
