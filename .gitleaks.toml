@@ -1,0 +1,14 @@
+# Gitleaks config for nidalheim-voice-turn-pipeline.
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+#
+# Scan full history:        gitleaks git   --config .gitleaks.toml -v
+# Scan the staged index:    gitleaks git   --config .gitleaks.toml --staged -v
+# Scan the working tree:    gitleaks dir . --config .gitleaks.toml -v
+
+title = "nidalheim-voice-turn-pipeline"
+
+[extend]
+# Default gitleaks ruleset (~170 rules: AWS, GitHub, Stripe, PEM private keys, JWTs...).
+# This package never embeds real API keys itself (callers pass Deepgram/Cartesia/
+# ElevenLabs keys in at runtime), so no repo-specific rules are needed on top.
+useDefault = true

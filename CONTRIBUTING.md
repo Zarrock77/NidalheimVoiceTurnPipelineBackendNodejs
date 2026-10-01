@@ -8,9 +8,13 @@ Thanks for considering a contribution to `nidalheim-voice-turn-pipeline`.
 git clone https://github.com/Zarrock77/NidalheimVoiceTurnPipelineBackendNodejs.git
 cd NidalheimVoiceTurnPipelineBackendNodejs
 pnpm install
+./scripts/install-git-hooks.sh
 ```
 
-Requires Node.js 22+ and [pnpm](https://pnpm.io/).
+Requires Node.js 22+ and [pnpm](https://pnpm.io/). The last step enables a pre-commit
+hook that scans staged changes for secrets with [gitleaks](https://github.com/gitleaks/gitleaks)
+(falls back to Docker if the binary isn't installed, warns instead of blocking if
+neither is available). CI also rescans the full history on every push/PR.
 
 ## Development workflow
 
