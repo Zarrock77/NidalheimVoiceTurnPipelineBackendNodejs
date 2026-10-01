@@ -42,7 +42,7 @@
     "@deepgram/sdk": "^3.11.0"
   },
   "peerDependencies": {
-    "ws": "^8.19.0"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
@@ -51,8 +51,8 @@
     "@types/ws": "^8.5.13",
     "cross-env": "^7.0.3",
     "jest": "^29.7.0",
-    "ts-jest": "^29.2.5",
+    "ts-jest": "^29.4.14",
     "typescript": "^5.7.0",
-    "ws": "^8.19.0"
+    "ws": "^8.22.0"
   }
 }
