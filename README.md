@@ -1,4 +1,4 @@
-# voice-turn-pipeline
+# nidalheim-voice-turn-pipeline
 
 Streaming voice-turn orchestration for real-time WebSocket agents: speech-to-text in,
 your own reply generation in the middle, streaming text-to-speech out. Vendor- and
@@ -26,7 +26,7 @@ only sees text in, text out.
 ## Install
 
 ```bash
-npm install voice-turn-pipeline ws
+npm install nidalheim-voice-turn-pipeline ws
 ```
 
 `ws` is a peer dependency, needed only if you use the bundled Cartesia/ElevenLabs
@@ -42,7 +42,7 @@ import {
   VoiceTurnSession,
   DeepgramStreamingSTT,
   CartesiaStreamingTTS,
-} from "voice-turn-pipeline";
+} from "nidalheim-voice-turn-pipeline";
 
 const wss = new WebSocketServer({ port: 8080 });
 

@@ -1,5 +1,5 @@
 {
-  "name": "voice-turn-pipeline",
+  "name": "nidalheim-voice-turn-pipeline",
   "version": "0.1.0",
   "description": "Streaming voice-turn orchestration (STT -> your reply callback -> TTS) for real-time WebSocket agents. Vendor- and transport-agnostic; Deepgram/Cartesia/ElevenLabs providers included.",
   "main": "dist/index.js",
