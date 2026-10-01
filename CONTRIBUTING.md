@@ -46,6 +46,70 @@ contribution workflow and require green CI checks before merging.
   required by GitHub (solo-maintainer project), but the maintainer may still comment
   or ask for changes before merging.
 
+## Publishing to npm (maintainers)
+
+The npm package name is `nidalheim-voice-turn-pipeline`. GitHub releases and npm
+versions must match: release tag `v0.1.1` requires `"version": "0.1.1"` in
+`package.json`. An existing npm version cannot be overwritten.
+
+### First publication
+
+An npm maintainer must create the package once before its trusted publisher can
+be configured. Use the merged `main` branch, an npm account with 2FA enabled, and
+Node.js 24 with npm 11.9.0 or newer:
+
+```bash
+git switch main
+git pull --ff-only
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm test
+pnpm run build
+npm pack --dry-run
+npm login --registry=https://registry.npmjs.org/
+npm publish --access public --registry=https://registry.npmjs.org/
+```
+
+Inspect the package contents before publishing: `dist/` must contain JavaScript
+and TypeScript declarations; `package.json`, `README.md`, and `LICENSE` must be
+included. Do not ship credentials, local configuration, or test fixtures.
+The existing `v0.1.0` GitHub release predates the publishing workflow and does not
+need to be recreated for this initial local publication.
+
+Then open the npm package's **Settings > Trusted Publisher**, choose **GitHub
+Actions**, and configure:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `Zarrock77` |
+| Repository | `NidalheimVoiceTurnPipelineBackendNodejs` |
+| Workflow filename | `npm-publish.yml` |
+| Environment name | Leave empty |
+| Allowed actions | Enable direct publishing with `npm publish` |
+
+No `NPM_TOKEN` or `NODE_AUTH_TOKEN` secret is needed. See the official
+[npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
+
+### Subsequent releases
+
+1. Open an issue and a release-preparation PR. Update the version in `package.json`
+   and move the relevant changelog entries from `Unreleased` into the new version.
+2. Merge only after the required CI checks pass and the branch is up to date.
+3. Create and publish a stable GitHub release targeting the merged commit, with a
+   tag matching `v<package.json version>`.
+4. Check the **Publish to npm** workflow and verify the published version with
+   `npm view nidalheim-voice-turn-pipeline version`.
+
+The workflow checks the release version, typechecks, runs tests, builds, and packs
+the distribution. A separate job publishes that exact tarball using OIDC. Pull
+requests affecting packaging and manual workflow runs validate without publishing;
+prereleases are skipped. Publication permissions are granted only to the release
+publication job.
+
+If an npm version already exists (including after a successful local publication),
+do not rerun publication for that version. Prepare a new version instead. A draft
+GitHub release does not publish anything until it is published.
+
 ## Reporting bugs / proposing features
 
 Open a GitHub issue. For a bug, include: what you expected, what happened instead,
