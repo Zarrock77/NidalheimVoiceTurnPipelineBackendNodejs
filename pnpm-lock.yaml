@@ -25,8 +25,8 @@ importers:
         specifier: ^8.5.13
         version: 8.18.1
       cross-env:
-        specifier: ^7.0.3
-        version: 7.0.3
+        specifier: ^10.1.0
+        version: 10.1.0
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@22.20.4)
@@ -214,6 +214,9 @@ packages:
   '@deepgram/sdk@3.13.0':
     resolution: {integrity: sha512-VFN4gbyIDl5Bj0ApERq4QJHzO2AK4YOoL5Lfoy//q9531+UIzaKCNie4NkBM2Kn/UndHH7tIR335SH14e2r+Ag==}
     engines: {node: '>=18.0.0'}
+
+  '@epic-web/invariant@1.0.0':
+    resolution: {integrity: sha512-lrTPqgvfFQtR/eY/qkIzp98OGdNJu0m5ji3q/nJI8v3SXkRKEnWiOxMmbvcSoAIzv/cGiuvRy57k4suKQSAdwA==}
 
   '@istanbuljs/load-nyc-config@1.1.0':
     resolution: {integrity: sha512-VjeHSlIzpv/NyD3N0YuHfXOPDIixcA1q2ZV98wsMqcYlPmv2n3Yb2lYP9XMElnaFVXg5A7YLTeLu6V84uQDjmQ==}
@@ -496,9 +499,9 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     hasBin: true
 
-  cross-env@7.0.3:
-    resolution: {integrity: sha512-+/HKd6EgcQCJGh2PSjZuUitQBQynKor4wrFbRg4DtAgS1aWO+gU52xpH7M9ScGgXSYmAVS9bIJ8EzuaGw0oNAw==}
-    engines: {node: '>=10.14', npm: '>=6', yarn: '>=1'}
+  cross-env@10.1.0:
+    resolution: {integrity: sha512-GsYosgnACZTADcmEyJctkJIoqAhHjttw7RsFrVoJNXbsWWqaq6Ym+7kZjq6mS45O0jij6vtiReppKQEtqWy6Dw==}
+    engines: {node: '>=20'}
     hasBin: true
 
   cross-fetch@3.2.0:
@@ -1465,6 +1468,8 @@ snapshots:
       - encoding
       - utf-8-validate
 
+  '@epic-web/invariant@1.0.0': {}
+
   '@istanbuljs/load-nyc-config@1.1.0':
     dependencies:
       camelcase: 5.3.1
@@ -1887,8 +1892,9 @@ snapshots:
       - supports-color
       - ts-node
 
-  cross-env@7.0.3:
+  cross-env@10.1.0:
     dependencies:
+      '@epic-web/invariant': 1.0.0
       cross-spawn: 7.0.6
 
   cross-fetch@3.2.0:
