@@ -111,6 +111,10 @@ Events `VoiceTurnSession` sends back via `send`:
 base class. Swap in Azure/Google STT or any other TTS vendor by implementing the
 interface and passing an instance in.
 
+## Roadmap
+
+Tracked as issues on the [project board](https://github.com/users/Zarrock77/projects/8).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and PRs welcome.

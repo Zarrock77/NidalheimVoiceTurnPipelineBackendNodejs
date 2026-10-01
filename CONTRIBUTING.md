@@ -38,7 +38,9 @@ in CI on every push and pull request.
 ## Reporting bugs / proposing features
 
 Open a GitHub issue. For a bug, include: what you expected, what happened instead,
-and the smallest reproduction you can manage (ideally a failing test).
+and the smallest reproduction you can manage (ideally a failing test). Check the
+[project board](https://github.com/users/Zarrock77/projects/8) first — it might
+already be tracked.
 
 ## Contact
 
