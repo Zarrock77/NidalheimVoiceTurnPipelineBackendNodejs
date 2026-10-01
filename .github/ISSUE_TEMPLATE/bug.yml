@@ -1,0 +1,63 @@
+name: Bug
+description: Something doesn't behave the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Don't report a security vulnerability here.** See [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: "0.1.0, or a commit SHA if installed via git"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - VoiceTurnSession
+        - DeepgramStreamingSTT
+        - CartesiaStreamingTTS
+        - ElevenLabsStreamingTTS
+        - SpeechTurn
+        - not sure / other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, from a clean setup to the problem.
+      placeholder: |
+        1. Construct a VoiceTurnSession with ...
+        2. Send a commit signal ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Logs, error message, stack trace. **Redact any tokens or API keys.**
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Node.js version, OS, TTS/STT provider in use"

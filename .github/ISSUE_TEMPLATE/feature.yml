@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose an improvement or a new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The need, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: >-
+        This package is intentionally transport- and vendor-agnostic (it owns the
+        turn state machine, not your socket or LLM). A proposal that couples it to a
+        specific host app, auth system, or transport is likely out of scope.
+      options:
+        - label: This keeps VoiceTurnSession transport/vendor-agnostic
+          required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: >-
+        Breaking change? New dependency? Affects the public API surface
+        (src/index.ts exports)?
