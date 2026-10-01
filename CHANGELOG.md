@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Dependabot for npm and GitHub Actions
+- npm release publication through GitHub Actions trusted publishing, with stable
+  tag/version validation and package checks on pull requests and manual runs.
+- Maintainer instructions for the first npm publication and subsequent releases.
 
 ## [0.1.0] - 2026-10-01
 
