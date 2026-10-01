@@ -12,6 +12,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # CI runs Node 22 and publishing Node 24: stay on matching type definitions.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Major migration tracked in #24 (API rewrite, needs a real audio stream).
+      - dependency-name: "@deepgram/sdk"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
     labels:
