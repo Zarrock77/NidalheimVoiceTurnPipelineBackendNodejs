@@ -27,7 +27,8 @@ in CI on every push and pull request.
 
 ## Branches and commits
 
-- Work off a feature branch, not `main` directly.
+- Work off a feature branch, not `main` directly — `main` is protected, a direct
+  `git push` to it is rejected by GitHub, including for the maintainer.
 - Commit messages: a short, descriptive summary line is enough (no strict format
   enforced). Explain *why* in the body if the change isn't self-evident from the diff.
 
@@ -37,7 +38,10 @@ in CI on every push and pull request.
 - Describe what changed and why; link any related issue.
 - A PR that changes behavior should update `README.md` if the public API or usage
   changed.
-- A maintainer reviews before merging.
+- Branch protection requires the `test` and `Scan git history` (gitleaks) checks to
+  pass and be up to date with `main` before a PR is mergeable. No human approval is
+  required by GitHub (solo-maintainer project), but the maintainer may still comment
+  or ask for changes before merging.
 
 ## Reporting bugs / proposing features
 
