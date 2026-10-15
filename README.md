@@ -115,6 +115,11 @@ interface and passing an instance in.
 
 Tracked as issues on the [project board](https://github.com/users/Zarrock77/projects/8).
 
+## Open source scope
+
+What this repository opens, what stays closed, the license and its dependencies:
+[docs/OPEN_SOURCE_SCOPE.md](docs/OPEN_SOURCE_SCOPE.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and PRs welcome.
