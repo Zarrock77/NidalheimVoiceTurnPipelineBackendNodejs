@@ -12,6 +12,11 @@ adheres to [Semantic Versioning](https://semver.org/).
   tag/version validation and package checks on pull requests and manual runs.
 - Maintainer instructions for the first npm publication and subsequent releases.
 
+### Fixed
+- `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
+  `stt final` log now reports only its length. The transcript is personal data and the
+  library logs to the host's stdout.
+
 ## [0.1.0] - 2026-10-01
 
 First public release, extracted from the voice pipeline of Nidalheim's `api-game`.

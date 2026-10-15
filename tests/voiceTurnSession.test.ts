@@ -227,3 +227,14 @@ test("silence completes without sending an empty request to the reply callback",
     expect(onUtterance).not.toHaveBeenCalled(); expect(events.some(e => e.type === "error")).toBe(true);
   } finally { session.shutdown(); }
 });
+
+test("what the user said never reaches the console logs", async () => {
+  const log = jest.spyOn(console, "log").mockImplementation(() => {});
+  const { session, stt } = await fixture();
+  try {
+    record(session, stt, "Mot de passe: tournesol"); await idle();
+    const logged = log.mock.calls.map(args => args.join(" ")).join("\n");
+    expect(logged).not.toContain("tournesol");
+    expect(logged).toContain("stt final");
+  } finally { session.shutdown(); log.mockRestore(); }
+});

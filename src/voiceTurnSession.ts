@@ -143,7 +143,8 @@ export class VoiceTurnSession {
           ? `${this.pendingTranscript} ${clean}`
           : clean;
       }
-      console.log(`[${this.label}] stt final: "${text}" speech_final=${speechFinal} commit=${this.commitRequested}`);
+      // Never log what the user said: it is personal data, and this library logs to the host's stdout.
+      console.log(`[${this.label}] stt final: ${text.length} characters speech_final=${speechFinal} commit=${this.commitRequested}`);
       // PTT ends at COMMIT, not at a pause midway through a sentence.
       // A final segment alone may precede the remaining words of this turn.
       if (this.commitRequested && ((info.fromFinalize && info.end !== null) || this._inputAudioProcessed())) {
