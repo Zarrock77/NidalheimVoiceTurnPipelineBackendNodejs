@@ -34,6 +34,13 @@ providers (they open outbound websockets to those APIs). Bring your own STT/TTS
 provider instead and you don't need it, as long as it matches the `StreamingSTT` /
 `StreamingTTS` interfaces.
 
+## Requirements
+
+- **Node.js 22 or later** (the version the CI runs on). The package is ESM only (`"type": "module"`).
+- **pnpm** to work on the repository itself (`package.json` pins `pnpm@10.29.2`; pnpm picks it up).
+- A Deepgram API key for speech-to-text and a Cartesia or ElevenLabs key for text-to-speech, only if you use
+  the bundled providers. The tests need **no key**: they use fake providers.
+
 ## Usage
 
 ```ts
@@ -86,6 +93,28 @@ wss.on("connection", (ws) => {
   ws.on("close", () => session.shutdown());
 });
 ```
+
+### What to replace in the example
+
+`myLLM` and `myHistoryStore` are stand-ins for your own code; they are not part of the package. The shapes
+the example expects:
+
+```ts
+declare const myLLM: {
+  respond(userText: string, opts: { onDelta: (delta: string) => void }): Promise<string>;
+};
+declare const myHistoryStore: {
+  append(userText: string, replyText: string): Promise<void>;
+};
+```
+
+The example reads three environment variables. Your code reads them, not the library:
+
+| Variable | Used for | Required |
+|---|---|---|
+| `DEEPGRAM_API_KEY` | `DeepgramStreamingSTT` | yes |
+| `CARTESIA_API_KEY` | `CartesiaStreamingTTS` | yes |
+| `CARTESIA_VOICE_ID` | the Cartesia voice | yes (the `!` in the example hides that) |
 
 Client wire protocol (what `VoiceTurnSession` expects you to route to it):
 
