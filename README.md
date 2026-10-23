@@ -140,6 +140,13 @@ Events `VoiceTurnSession` sends back via `send`:
 base class. Swap in Azure/Google STT or any other TTS vendor by implementing the
 interface and passing an instance in.
 
+## Scope
+
+This package and the [NidalheimVoiceTurnPipeline](https://github.com/Zarrock77/NidalheimVoiceTurnPipelinePluginUE5) UE5 plugin are the only parts of the Nidalheim game that are open source. They contain no game-specific
+code and can be reused on their own. Everything else stays closed: the game itself, the quest system, the NPC data
+(prompts, voices, model choices), the authentication plugin, and the backend services and infrastructure. That is
+where the game's own value lies, and none of it is needed to use this package.
+
 ## Roadmap
 
 What is planned and what is open to contributions: [ROADMAP.md](ROADMAP.md). Newcomers: look for the
