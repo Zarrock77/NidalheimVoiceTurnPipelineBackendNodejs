@@ -4,7 +4,8 @@ export type {
   DeepgramReconfigureOptions,
 } from "./deepgram.js";
 
-export { CartesiaStreamingTTS } from "./cartesia.js";
+export { CartesiaStreamingTTS, CARTESIA_EMOTIONS, normaliseEmotion } from "./cartesia.js";
+export type { CartesiaEmotion } from "./cartesia.js";
 export type { CartesiaStreamingTTSOptions } from "./cartesia.js";
 
 export { ElevenLabsStreamingTTS } from "./elevenlabs.js";

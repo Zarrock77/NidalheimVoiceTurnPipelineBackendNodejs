@@ -13,7 +13,7 @@ package owns the push-to-talk state machine and the TTS turn lifecycle.
   `audio` / `audio_end` / `error` events through a `send` callback you provide.
 - `DeepgramStreamingSTT` — Deepgram streaming STT provider.
 - `CartesiaStreamingTTS` — Cartesia streaming TTS provider (persistent websocket,
-  supports back-to-back contexts).
+  supports back-to-back contexts, optional per-utterance emotion).
 - `ElevenLabsStreamingTTS` — ElevenLabs streaming TTS provider (per-utterance
   websocket).
 - `SpeechTurn` — owns one TTS context from first text to final audio, including
@@ -132,6 +132,28 @@ Events `VoiceTurnSession` sends back via `send`:
 | `text` | the full reply text, once generated |
 | `audio_start` / `audio` / `audio_end` | one TTS turn's audio stream, tagged with a `request_id` |
 | `error` | a recoverable or unrecoverable failure; unrecoverable ones also call `close()` |
+
+## Emotion on Cartesia
+
+`CartesiaStreamingTTS.setEmotion()` adds Cartesia's `generation_config.emotion` to every
+frame of the following utterances. Call it before the first `sendText()` of a turn: the
+emotion has to be known before the first audio is generated.
+
+```ts
+tts.setEmotion("angry");   // returns "angry"
+tts.setEmotion("furious"); // returns null, nothing is sent
+tts.setEmotion(null);      // back to the default voice
+```
+
+Only the six emotions Cartesia documents as best supported are accepted, exported as
+`CARTESIA_EMOTIONS`: `neutral`, `calm`, `angry`, `content`, `sad`, `scared`. Anything else
+is dropped and the voice stays neutral, which matters because **the Cartesia API accepts an
+unknown emotion silently and answers 200** rather than rejecting it. `normaliseEmotion()` is
+exported if you want to validate a value yourself; it trims and lowercases.
+
+Nothing is sent when no emotion is set, so the request is byte for byte what it was before.
+Cartesia describes these parameters as guidance rather than strict adjustments, and the
+effect varies by voice and by sentence.
 
 ## Bring your own provider
 
