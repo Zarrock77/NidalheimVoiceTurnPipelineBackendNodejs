@@ -69,6 +69,12 @@ export interface VoiceTurnSessionConfig {
   label?: string;
   keepAliveIntervalMs?: number;
   finalizationTimeoutMs?: number;
+  /**
+   * Hands-free mode: once the user has been silent this long after a `speech_final`
+   * (no new words in between), the turn is committed as if the client had sent a commit.
+   * Off by default (0 / undefined): the turn then only ends on `onClientCommit()`.
+   */
+  silenceTimeoutMs?: number;
   /** How many seconds of PCM16 mono audio may queue while a commit is being finalized. Default: 15. */
   maxQueuedAudioSeconds?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
@@ -91,6 +97,8 @@ export class VoiceTurnSession {
   private readonly label: string;
   private readonly keepAliveIntervalMs: number;
   private readonly finalizationTimeoutMs: number;
+  private readonly silenceTimeoutMs: number;
+  private silenceTimer: NodeJS.Timeout | null = null;
   private readonly maxQueuedAudioSeconds: number;
   private readonly messages: VoiceTurnSessionMessages;
 
@@ -123,6 +131,7 @@ export class VoiceTurnSession {
     this.label = config.label ?? "voice-turn-session";
     this.keepAliveIntervalMs = config.keepAliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.finalizationTimeoutMs = config.finalizationTimeoutMs ?? DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS;
+    this.silenceTimeoutMs = config.silenceTimeoutMs ?? 0;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
   }
@@ -130,6 +139,7 @@ export class VoiceTurnSession {
   async start(): Promise<void> {
     this.stt.onInterim = (text) => {
       if (!this.inputOpen || this.disposed) return;
+      this._clearSilenceTimer(); // the user is speaking again
       this._send({ type: "user_transcript_partial", data: text });
     };
 
@@ -145,6 +155,7 @@ export class VoiceTurnSession {
       }
       // Never log what the user said: it is personal data, and this library logs to the host's stdout.
       console.log(`[${this.label}] stt final: ${text.length} characters speech_final=${speechFinal} commit=${this.commitRequested}`);
+      this._armSilenceTimer(speechFinal && !!clean);
       // PTT ends at COMMIT, not at a pause midway through a sentence.
       // A final segment alone may precede the remaining words of this turn.
       if (this.commitRequested && ((info.fromFinalize && info.end !== null) || this._inputAudioProcessed())) {
@@ -217,6 +228,7 @@ export class VoiceTurnSession {
     }
     if (!this.inputOpen) return;
     console.log(`[${this.label}] commit received (chunks so far: ${this._audioChunks})`);
+    this._clearSilenceTimer();
     this.commitRequested = true;
     const turnId = this.inputTurnId;
     this.finalizationTimer = setTimeout(() => {
@@ -225,6 +237,22 @@ export class VoiceTurnSession {
       }
     }, this.finalizationTimeoutMs);
     this._finalizeInput();
+  }
+
+  private _clearSilenceTimer(): void {
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+
+  /** Arms the silence commit only after a speech_final with words; any other result disarms it. */
+  private _armSilenceTimer(arm: boolean): void {
+    this._clearSilenceTimer();
+    if (!arm || this.silenceTimeoutMs <= 0 || this.commitRequested) return;
+    const turnId = this.inputTurnId;
+    this.silenceTimer = setTimeout(() => {
+      this.silenceTimer = null;
+      if (this.inputOpen && !this.commitRequested && this.inputTurnId === turnId) this.onClientCommit();
+    }, this.silenceTimeoutMs);
   }
 
   private _inputAudioProcessed(): boolean {
@@ -289,6 +317,7 @@ export class VoiceTurnSession {
     const text = this.pendingTranscript;
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
+    this._clearSilenceTimer();
     this.pendingTranscript = "";
     this.commitRequested = false;
     this.inputOpen = false;
@@ -368,6 +397,7 @@ export class VoiceTurnSession {
     this.disposed = true;
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
+    this._clearSilenceTimer();
     this.queuedInput.length = 0;
     this.queuedInputBytes = 0;
     this._preConfigBuffer = null;

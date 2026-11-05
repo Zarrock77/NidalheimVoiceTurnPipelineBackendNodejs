@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `silenceTimeoutMs` option on `VoiceTurnSession` (hands-free): commits the turn once the user
+  has been silent that long after a `speech_final`. Off by default; push-to-talk is unchanged.
 - Dependabot for npm and GitHub Actions
 - npm release publication through GitHub Actions trusted publishing, with stable
   tag/version validation and package checks on pull requests and manual runs.
