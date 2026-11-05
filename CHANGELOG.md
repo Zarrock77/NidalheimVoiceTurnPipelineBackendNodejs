@@ -11,6 +11,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 - npm release publication through GitHub Actions trusted publishing, with stable
   tag/version validation and package checks on pull requests and manual runs.
 - Maintainer instructions for the first npm publication and subsequent releases.
+- Test proving that `VoiceTurnSession`s are released (no timer left, garbage-collected) after
+  `shutdown()`, including a disconnect in the middle of a reply.
 - Tests for the ElevenLabs provider: final audio, unexpected close, error messages, audio
   forwarding, stale sockets and text framing.
 
