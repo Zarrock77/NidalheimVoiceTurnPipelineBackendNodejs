@@ -40,7 +40,7 @@ const record = (session: VoiceTurnSession, stt: FakeSTT, text: string) => {
   stt.onFinal(text, true, { fromFinalize: true });
 };
 
-async function fixture(configure = true) {
+async function fixture(configure = true, extra: { maxTranscriptChars?: number } = {}) {
   const events: Record<string, unknown>[] = [];
   const close = jest.fn();
   const stt = new FakeSTT();
@@ -56,6 +56,7 @@ async function fixture(configure = true) {
     ttsRoute: { persistent: true, instance: tts },
     onUtterance,
     onTurnComplete,
+    ...extra,
   });
   await session.start();
   if (configure) await session.onClientAudioConfig({ sample_rate: 48000 });
@@ -237,4 +238,29 @@ test("what the user said never reaches the console logs", async () => {
     expect(logged).not.toContain("tournesol");
     expect(logged).toContain("stt final");
   } finally { session.shutdown(); log.mockRestore(); }
+});
+
+test("reaching maxTranscriptChars commits the turn and keeps the full text", async () => {
+  const { session, stt, onUtterance } = await fixture(true, { maxTranscriptChars: 10 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Un objet", false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+    stt.onFinal("secret", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("tres", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(onUtterance.mock.calls[0][0]).toBe("Un objet secret tres");
+  } finally { session.shutdown(); }
+});
+
+test("maxTranscriptChars is disabled by default", async () => {
+  const { session, stt } = await fixture();
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("x".repeat(5000), false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
 });

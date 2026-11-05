@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `VoiceTurnSessionConfig.maxTranscriptChars`: commits the turn automatically once the recognized
+  text reaches that many characters (default `0`, disabled). The text is kept, not truncated.
 - Dependabot for npm and GitHub Actions
 - npm release publication through GitHub Actions trusted publishing, with stable
   tag/version validation and package checks on pull requests and manual runs.

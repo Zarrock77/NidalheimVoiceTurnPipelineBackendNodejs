@@ -71,6 +71,12 @@ export interface VoiceTurnSessionConfig {
   finalizationTimeoutMs?: number;
   /** How many seconds of PCM16 mono audio may queue while a commit is being finalized. Default: 15. */
   maxQueuedAudioSeconds?: number;
+  /**
+   * Commits the turn on its own once the recognized text of the open input reaches this
+   * many characters, as if the client had sent COMMIT. The text is kept, not truncated.
+   * Default: 0 (disabled).
+   */
+  maxTranscriptChars?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
 }
 
@@ -92,6 +98,7 @@ export class VoiceTurnSession {
   private readonly keepAliveIntervalMs: number;
   private readonly finalizationTimeoutMs: number;
   private readonly maxQueuedAudioSeconds: number;
+  private readonly maxTranscriptChars: number;
   private readonly messages: VoiceTurnSessionMessages;
 
   private utteranceInFlight = false;
@@ -124,6 +131,7 @@ export class VoiceTurnSession {
     this.keepAliveIntervalMs = config.keepAliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.finalizationTimeoutMs = config.finalizationTimeoutMs ?? DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
+    this.maxTranscriptChars = config.maxTranscriptChars ?? 0;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
   }
 
@@ -145,6 +153,10 @@ export class VoiceTurnSession {
       }
       // Never log what the user said: it is personal data, and this library logs to the host's stdout.
       console.log(`[${this.label}] stt final: ${text.length} characters speech_final=${speechFinal} commit=${this.commitRequested}`);
+      if (this.maxTranscriptChars > 0 && !this.commitRequested && this.pendingTranscript.length >= this.maxTranscriptChars) {
+        console.log(`[${this.label}] transcript reached ${this.pendingTranscript.length} characters (limit ${this.maxTranscriptChars}), committing`);
+        this.onClientCommit();
+      }
       // PTT ends at COMMIT, not at a pause midway through a sentence.
       // A final segment alone may precede the remaining words of this turn.
       if (this.commitRequested && ((info.fromFinalize && info.end !== null) || this._inputAudioProcessed())) {
