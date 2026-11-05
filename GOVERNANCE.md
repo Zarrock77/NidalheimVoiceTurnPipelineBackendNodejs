@@ -18,7 +18,8 @@ This page says who decides what, how a contribution gets in, and what happens ne
 
 - A release is a GitHub release with a tag `vX.Y.Z` whose version matches `version` in `package.json`.
   The npm publication workflow checks that match; an existing npm version cannot be overwritten.
-- A release is worth cutting when a user-visible change has been merged on `main` (a feature or a fix).
+- A release is worth cutting when a user-visible change has been merged on `dev` (a feature or a fix).
+  It reaches `main` through a temporary release branch merged with a merge commit (see CONTRIBUTING.md).
   The maintainer decides when.
 - The package is `0.x`: a change that breaks the public API bumps the minor version and is listed under `Changed` in the CHANGELOG.
 
