@@ -112,6 +112,7 @@ export class VoiceTurnSession {
   private _awaitingFirstConfig = true;
   private _preConfigBuffer: Buffer[] | null = null;
   private _sttOpened = false;
+  private _configChain: Promise<void> = Promise.resolve();
 
   constructor(config: VoiceTurnSessionConfig) {
     this.send = config.send;
@@ -247,7 +248,14 @@ export class VoiceTurnSession {
     this.closeTransport(1011, "speech input failed");
   }
 
-  async onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+  // Serialized: a second audio_config waits for the first, so start()/reconfigure() never overlap.
+  onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+    const run = this._configChain.then(() => this._applyAudioConfig(msg));
+    this._configChain = run.catch(() => {});
+    return run;
+  }
+
+  private async _applyAudioConfig(msg: AudioConfigMessage): Promise<void> {
     if (this.disposed) return;
     const rate = Number(msg?.sample_rate);
     if (!Number.isFinite(rate) || rate <= 0) return;
@@ -264,6 +272,8 @@ export class VoiceTurnSession {
       } else if (rate !== this.stt.sampleRate) {
         if (this.inputOpen) { this._failInput(this.messages.microphoneFormatChanged); return; }
         console.log(`[${this.label}] reconfiguring STT: ${this.stt.sampleRate} Hz -> ${rate} Hz`);
+        // Buffer audio like before the first config until the new connection is ready.
+        this._awaitingFirstConfig = true;
         await this.stt.reconfigure({ sampleRate: rate });
         console.log(`[${this.label}] STT reconfigured at ${rate} Hz`);
       }

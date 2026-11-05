@@ -26,11 +26,11 @@ class FakeSTT implements StreamingSTT {
   }
   onInterim = () => {}; onError = () => {}; onUtteranceEnd = () => {};
   sampleRate = 48000; audioSecondsSent = 0; finalAudioSeconds = 0;
-  start = async () => {};
+  start = jest.fn(async () => {});
   sendAudio = jest.fn((b: Buffer) => { this.audioSecondsSent += b.length / 96000; });
   finalize = jest.fn(() => true);
   keepAlive = () => {}; close = () => {};
-  reconfigure = async () => {};
+  reconfigure = jest.fn(async (_opts: { sampleRate: number }) => {});
 }
 
 const idle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
@@ -237,4 +237,38 @@ test("what the user said never reaches the console logs", async () => {
     expect(logged).not.toContain("tournesol");
     expect(logged).toContain("stt final");
   } finally { session.shutdown(); log.mockRestore(); }
+});
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+};
+
+test("audio sent while STT reconfigures is buffered and delivered in order after it resolves", async () => {
+  const { session, stt } = await fixture();
+  try {
+    const gate = deferred();
+    stt.reconfigure.mockImplementationOnce(() => gate.promise);
+    const config = session.onClientAudioConfig({ sample_rate: 16000 });
+    await idle();
+    const chunks = [Buffer.from([1, 1]), Buffer.from([2, 2]), Buffer.from([3, 3])];
+    for (const c of chunks) session.onClientAudio(c);
+    expect(stt.sendAudio).not.toHaveBeenCalled();
+    gate.resolve(); await config;
+    expect(stt.sendAudio.mock.calls.map(([b]) => b)).toEqual(chunks);
+  } finally { session.shutdown(); }
+});
+
+test("two audio_config messages sent back to back open a single STT connection", async () => {
+  const { session, stt } = await fixture(false);
+  try {
+    const gate = deferred();
+    stt.start.mockImplementationOnce(() => gate.promise);
+    const first = session.onClientAudioConfig({ sample_rate: 48000 });
+    const second = session.onClientAudioConfig({ sample_rate: 48000 });
+    gate.resolve(); await Promise.all([first, second]);
+    expect(stt.start).toHaveBeenCalledTimes(1);
+    expect(stt.reconfigure).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
 });
