@@ -13,6 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 - Maintainer instructions for the first npm publication and subsequent releases.
 - Test proving that `VoiceTurnSession`s are released (no timer left, garbage-collected) after
   `shutdown()`, including a disconnect in the middle of a reply.
+- Tests for the ElevenLabs provider: final audio, unexpected close, error messages, audio
+  forwarding, stale sockets and text framing.
 
 ### Fixed
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
