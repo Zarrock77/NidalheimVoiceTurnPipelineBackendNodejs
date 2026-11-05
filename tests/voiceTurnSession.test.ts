@@ -345,3 +345,37 @@ test("without silenceTimeoutMs the turn never ends on its own", async () => {
     expect(stt.finalize).not.toHaveBeenCalled();
   } finally { session.shutdown(); }
 });
+
+test("maxTurnMs commits a turn that stays open without a client commit", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(29999);
+    expect(stt.finalize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("maxTurnMs is cancelled by a client commit and does not fire twice", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    session.onClientCommit();
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(60000 - 1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("without maxTurnMs an open turn is never ended on its own", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({});
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(600000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});

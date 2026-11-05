@@ -75,6 +75,12 @@ export interface VoiceTurnSessionConfig {
    * Off by default (0 / undefined): the turn then only ends on `onClientCommit()`.
    */
   silenceTimeoutMs?: number;
+  /**
+   * Upper bound on how long an input turn may stay open before it is committed
+   * (a stuck push-to-talk key, a client that never commits). Off by default (0 / undefined).
+   * If nothing was recognized, the usual `noSpeechRecognized` error applies.
+   */
+  maxTurnMs?: number;
   /** How many seconds of PCM16 mono audio may queue while a commit is being finalized. Default: 15. */
   maxQueuedAudioSeconds?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
@@ -99,6 +105,8 @@ export class VoiceTurnSession {
   private readonly finalizationTimeoutMs: number;
   private readonly silenceTimeoutMs: number;
   private silenceTimer: NodeJS.Timeout | null = null;
+  private readonly maxTurnMs: number;
+  private maxTurnTimer: NodeJS.Timeout | null = null;
   private readonly maxQueuedAudioSeconds: number;
   private readonly messages: VoiceTurnSessionMessages;
 
@@ -131,6 +139,7 @@ export class VoiceTurnSession {
     this.keepAliveIntervalMs = config.keepAliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.finalizationTimeoutMs = config.finalizationTimeoutMs ?? DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS;
     this.silenceTimeoutMs = config.silenceTimeoutMs ?? 0;
+    this.maxTurnMs = config.maxTurnMs ?? 0;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
   }
@@ -202,6 +211,7 @@ export class VoiceTurnSession {
       this.inputOpen = true;
       this.inputTurnId++;
       this.inputStartSeconds = this.stt.audioSecondsSent;
+      this._armMaxTurnTimer();
     }
     if (this._awaitingFirstConfig) {
       if (!this._preConfigBuffer) this._preConfigBuffer = [];
@@ -223,6 +233,7 @@ export class VoiceTurnSession {
     if (!this.inputOpen) return;
     console.log(`[${this.label}] commit received`);
     this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this.commitRequested = true;
     const turnId = this.inputTurnId;
     this.finalizationTimer = setTimeout(() => {
@@ -247,6 +258,20 @@ export class VoiceTurnSession {
       this.silenceTimer = null;
       if (this.inputOpen && !this.commitRequested && this.inputTurnId === turnId) this.onClientCommit();
     }, this.silenceTimeoutMs);
+  }
+
+  private _clearMaxTurnTimer(): void {
+    if (this.maxTurnTimer) clearTimeout(this.maxTurnTimer);
+    this.maxTurnTimer = null;
+  }
+
+  private _armMaxTurnTimer(): void {
+    if (this.maxTurnMs <= 0) return;
+    const turnId = this.inputTurnId;
+    this.maxTurnTimer = setTimeout(() => {
+      this.maxTurnTimer = null;
+      if (this.inputOpen && !this.commitRequested && this.inputTurnId === turnId) this.onClientCommit();
+    }, this.maxTurnMs);
   }
 
   private _inputAudioProcessed(): boolean {
@@ -321,6 +346,7 @@ export class VoiceTurnSession {
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
     this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this.pendingTranscript = "";
     this.commitRequested = false;
     this.inputOpen = false;
@@ -399,6 +425,7 @@ export class VoiceTurnSession {
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
     this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this.queuedInput.length = 0;
     this.queuedInputBytes = 0;
     this._preConfigBuffer = null;
