@@ -107,8 +107,6 @@ export class VoiceTurnSession {
   private queuedInputBytes = 0;
   private disposed = false;
   private keepAliveTimer: NodeJS.Timeout | null = null;
-  private _audioChunks = 0;
-  private _audioBytes = 0;
   private _awaitingFirstConfig = true;
   private _preConfigBuffer: Buffer[] | null = null;
   private _sttOpened = false;
@@ -193,11 +191,6 @@ export class VoiceTurnSession {
       this.inputTurnId++;
       this.inputStartSeconds = this.stt.audioSecondsSent;
     }
-    this._audioChunks++;
-    this._audioBytes += pcm16Buffer.length;
-    if (this._audioChunks === 1 || this._audioChunks % 100 === 0) {
-      console.log(`[${this.label}] audio chunk #${this._audioChunks}, ${pcm16Buffer.length}B (cum ${this._audioBytes}B)`);
-    }
     if (this._awaitingFirstConfig) {
       if (!this._preConfigBuffer) this._preConfigBuffer = [];
       this._preConfigBuffer.push(pcm16Buffer);
@@ -216,7 +209,7 @@ export class VoiceTurnSession {
       return;
     }
     if (!this.inputOpen) return;
-    console.log(`[${this.label}] commit received (chunks so far: ${this._audioChunks})`);
+    console.log(`[${this.label}] commit received`);
     this.commitRequested = true;
     const turnId = this.inputTurnId;
     this.finalizationTimer = setTimeout(() => {
@@ -292,8 +285,6 @@ export class VoiceTurnSession {
     this.pendingTranscript = "";
     this.commitRequested = false;
     this.inputOpen = false;
-    this._audioChunks = 0;
-    this._audioBytes = 0;
     console.log(`[${this.label}] input turn ${this.inputTurnId} finalized (${text.length} characters)`);
     if (text) void this._handleUtterance(text);
     else this._send({ type: "error", message: this.messages.noSpeechRecognized });

@@ -5,11 +5,12 @@ class Live extends EventEmitter {
   send=jest.fn();finish=jest.fn();getReadyState=()=>1;
 }
 const lives:Live[]=[];
+let liveOptions:Record<string,unknown>={};
 const events={Open:'open',Error:'error',Transcript:'transcript',UtteranceEnd:'utterance-end'};
 jest.unstable_mockModule('@deepgram/sdk',()=>({
   LiveTranscriptionEvents:events,
-  createClient:()=>({listen:{live:()=>{
-    const live=new Live();lives.push(live);queueMicrotask(()=>live.emit(events.Open));return live;
+  createClient:()=>({listen:{live:(options:Record<string,unknown>)=>{
+    liveOptions=options;const live=new Live();lives.push(live);queueMicrotask(()=>live.emit(events.Open));return live;
   }}}),
 }));
 const {DeepgramStreamingSTT}=await import('../src/deepgram.js');
@@ -57,4 +58,12 @@ test('Finalize reports a closed transport instead of silently claiming success',
   const stt=new DeepgramStreamingSTT('fake');expect(stt.finalize()).toBe(false);await stt.start();
   expect(stt.finalize()).toBe(true);expect(lives[0].send).toHaveBeenCalledWith(JSON.stringify({type:'Finalize'}));
   stt.close();expect(stt.finalize()).toBe(false);
+});
+
+test('no VAD events are requested and empty transcripts are not logged',async()=>{
+  const log=jest.spyOn(console,'log').mockImplementation(()=>{});
+  const stt=new DeepgramStreamingSTT('fake');await stt.start();
+  lives[0].emit(events.Transcript,packet('',0,1));
+  expect(liveOptions).not.toHaveProperty('vad_events');expect(log).not.toHaveBeenCalled();
+  stt.close();log.mockRestore();
 });
