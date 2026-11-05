@@ -44,6 +44,7 @@ export const DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS = 5000;
 export const DEFAULT_UTTERANCE_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_QUEUED_AUDIO_SECONDS = 15;
 const MAX_PENDING_UTTERANCES = 4;
+const MAX_TIMER_MS = 2147483647; // setTimeout's limit; larger values fire after 1 ms
 
 export interface VoiceTurnSessionConfig {
   /**
@@ -77,7 +78,8 @@ export interface VoiceTurnSessionConfig {
   /**
    * Longest time `onUtterance` may take to resolve. On expiry the turn is cancelled, the
    * client gets the `replyTimeout` error, the next queued utterance starts, and anything the
-   * late call still produces is ignored. Default: 60000. 0 disables the timeout.
+   * late call still produces is ignored. Default: 60000. 0 disables the timeout; so does any
+   * value that is not a finite number in (0, 2147483647] (e.g. `Infinity`, `NaN`, negatives).
    */
   utteranceTimeoutMs?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
@@ -135,7 +137,8 @@ export class VoiceTurnSession {
     this.keepAliveIntervalMs = config.keepAliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.finalizationTimeoutMs = config.finalizationTimeoutMs ?? DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
-    this.utteranceTimeoutMs = config.utteranceTimeoutMs ?? DEFAULT_UTTERANCE_TIMEOUT_MS;
+    const timeoutMs = config.utteranceTimeoutMs ?? DEFAULT_UTTERANCE_TIMEOUT_MS;
+    this.utteranceTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_TIMER_MS ? timeoutMs : 0;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
   }
 
@@ -340,14 +343,12 @@ export class VoiceTurnSession {
       let firstDeltaAt: number | null = null;
 
       const call = this.onUtterance(userText, (delta) => {
-        if (timedOut) return;
         if (!firstDeltaAt) {
           firstDeltaAt = Date.now();
           mark("first reply delta");
         }
         turn.write(delta);
       });
-      call.catch(() => {}); // a late rejection after the timeout must not become an unhandledRejection
       const full = this.utteranceTimeoutMs > 0
         ? await Promise.race([call, new Promise<never>((_, reject) => {
             this.utteranceTimer = setTimeout(() => { timedOut = true; reject(new Error("reply timeout")); }, this.utteranceTimeoutMs);

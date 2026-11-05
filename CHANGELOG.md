@@ -11,9 +11,12 @@ adheres to [Semantic Versioning](https://semver.org/).
 - npm release publication through GitHub Actions trusted publishing, with stable
   tag/version validation and package checks on pull requests and manual runs.
 - Maintainer instructions for the first npm publication and subsequent releases.
-- `utteranceTimeoutMs` option (default 60000, `0` disables) and `replyTimeout` message: a
-  hung `onUtterance` no longer blocks the conversation. On expiry the turn is cancelled, the
+- `utteranceTimeoutMs` option (default 60000) and `replyTimeout` message: a hung
+  `onUtterance` no longer blocks the conversation. On expiry the turn is cancelled, the
   client receives an error, the next queued utterance starts and the late result is ignored.
+  **Behaviour change:** replies that take longer than 60 s are now cut by default. Set
+  `utteranceTimeoutMs: 0` to disable the timeout (so does any non-finite, non-positive or
+  above-2147483647 value). `VoiceTurnSessionMessages` gains the required key `replyTimeout`.
 
 ### Fixed
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the

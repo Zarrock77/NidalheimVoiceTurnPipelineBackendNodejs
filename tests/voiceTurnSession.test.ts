@@ -313,4 +313,15 @@ describe("utteranceTimeoutMs", () => {
       expect(unhandled).not.toHaveBeenCalled();
     } finally { process.off("unhandledRejection", unhandled); session.shutdown(); }
   });
+
+  test.each([Infinity, NaN, -5, 2 ** 31])("an unusable timeout (%p) disables it instead of failing every reply", async (utteranceTimeoutMs) => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs });
+    try {
+      onUtterance.mockImplementationOnce(() => new Promise<string>((resolve) => { setTimeout(() => resolve("Bonjour."), 5); }));
+      record(session, stt, "Salut"); await jest.advanceTimersByTimeAsync(10);
+      expect(events.some(e => e.type === "error")).toBe(false);
+      expect(events).toContainEqual({ type: "text", data: "Bonjour." });
+    } finally { session.shutdown(); }
+  });
 });
