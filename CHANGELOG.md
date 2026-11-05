@@ -11,6 +11,9 @@ adheres to [Semantic Versioning](https://semver.org/).
 - npm release publication through GitHub Actions trusted publishing, with stable
   tag/version validation and package checks on pull requests and manual runs.
 - Maintainer instructions for the first npm publication and subsequent releases.
+- `utteranceTimeoutMs` option (default 60000, `0` disables) and `replyTimeout` message: a
+  hung `onUtterance` no longer blocks the conversation. On expiry the turn is cancelled, the
+  client receives an error, the next queued utterance starts and the late result is ignored.
 
 ### Fixed
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
