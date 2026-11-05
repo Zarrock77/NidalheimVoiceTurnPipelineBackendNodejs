@@ -15,8 +15,9 @@ adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - `SpeechTurn` no longer hard-codes `sample_rate: 24000` in `audio_start`: it announces the rate
   exposed by the TTS provider (new optional `StreamingTTS.sampleRate`, set by `CartesiaStreamingTTS`
-  and by `ElevenLabsStreamingTTS` for `pcm_<rate>` formats), falling back to 24000. The `encoding`
-  field is unchanged, so non-PCM ElevenLabs formats are still announced as `pcm_s16le`.
+  and by `ElevenLabsStreamingTTS`), falling back to 24000. `ElevenLabsStreamingTTS` now throws at
+  construction when `outputFormat` is not `pcm_<rate>`, since the audio is always announced as
+  `pcm_s16le` and any other format would play as noise.
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
   `stt final` log now reports only its length. The transcript is personal data and the
   library logs to the host's stdout.
