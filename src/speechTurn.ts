@@ -7,6 +7,8 @@ export interface StreamingTTS {
   start?: () => Promise<void>;
   beginUtterance?: () => void;
   sendText: (text: string) => void;
+  /** PCM sample rate announced in `audio_start`; 24000 when absent. */
+  readonly sampleRate?: number;
   flush: () => unknown;
   close: () => void;
 }
@@ -26,6 +28,7 @@ export class SpeechTurn {
   private resolveDone!: () => void;
   private readonly done = new Promise<void>((resolve) => { this.resolveDone = resolve; });
   private readonly opening: Promise<void>;
+  private get sampleRate(): number { return this.tts.sampleRate ?? 24000; }
 
   constructor(
     private readonly tts: StreamingTTS,
@@ -51,7 +54,7 @@ export class SpeechTurn {
       tts.beginUtterance?.();
       this.ready = true;
       this.started = true;
-      this.send({ type: "audio_start", request_id: this.id, sample_rate: 24000, channels: 1, encoding: "pcm_s16le" });
+      this.send({ type: "audio_start", request_id: this.id, sample_rate: this.sampleRate, channels: 1, encoding: "pcm_s16le" });
       for (const text of this.pending) tts.sendText(text);
       this.pending = [];
     }).catch(() => this.fail());
@@ -104,7 +107,7 @@ export class SpeechTurn {
     this.tts.onError = () => {};
     if (this.started) {
       this.send({ type: "audio_end", request_id: this.id, status, audio_frames: this.audioFrames, audio_chunks: this.audioChunks });
-      console.log(`[tts ${this.id}] ${status}: ${this.audioChunks} chunks, ${this.audioFrames} frames (${(this.audioFrames / 24000).toFixed(2)}s)`);
+      console.log(`[tts ${this.id}] ${status}: ${this.audioChunks} chunks, ${this.audioFrames} frames (${(this.audioFrames / this.sampleRate).toFixed(2)}s)`);
     }
     if (this.closeOnDone) this.tts.close();
     this.resolveDone();

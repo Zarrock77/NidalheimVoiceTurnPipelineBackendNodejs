@@ -10,6 +10,7 @@ class FakeTTS implements StreamingTTS {
   sendText = jest.fn<(text: string) => void>();
   flush = jest.fn();
   close = jest.fn();
+  sampleRate?: number;
 }
 
 const ready = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -90,4 +91,20 @@ test("per-turn providers close on success and an empty reply cannot block the ne
   const next = new SpeechTurn(new FakeTTS(), (e) => events.push(e), false);
   await next.finishText();
   expect(events.at(-1)).toMatchObject({ type: "audio_end", status: "ok", audio_frames: 0 });
+});
+
+test("audio_start and the duration log use the sample rate of the TTS, 24000 when it does not expose one", async () => {
+  const events: Record<string, unknown>[] = [];
+  const log = jest.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const fast = new FakeTTS(); fast.sampleRate = 16000;
+    const turn = new SpeechTurn(fast, (e) => events.push(e), false);
+    new SpeechTurn(new FakeTTS(), (e) => events.push(e), false);
+    turn.write("Bonjour."); await ready();
+    const done = turn.finishText(); await ready();
+    fast.onAudio(Buffer.alloc(9600, 1).toString("base64")); // 4800 frames
+    fast.onFinal(); await done;
+    expect(events.filter(e => e.type === "audio_start").map(e => e.sample_rate)).toEqual([16000, 24000]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("(0.30s)"));
+  } finally { log.mockRestore(); }
 });
