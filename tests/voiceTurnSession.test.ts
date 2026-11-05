@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { VoiceTurnSession, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
+import { VoiceTurnSession, type VoiceTurnSessionConfig, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
 import type { StreamingTTS } from "../src/speechTurn.js";
 import type { StreamingSTT, FinalTranscriptInfo } from "../src/types.js";
 
@@ -40,7 +40,7 @@ const record = (session: VoiceTurnSession, stt: FakeSTT, text: string) => {
   stt.onFinal(text, true, { fromFinalize: true });
 };
 
-async function fixture(configure = true) {
+async function fixture(configure = true, extra: Partial<VoiceTurnSessionConfig> = {}) {
   const events: Record<string, unknown>[] = [];
   const close = jest.fn();
   const stt = new FakeSTT();
@@ -56,11 +56,14 @@ async function fixture(configure = true) {
     ttsRoute: { persistent: true, instance: tts },
     onUtterance,
     onTurnComplete,
+    ...extra,
   });
   await session.start();
   if (configure) await session.onClientAudioConfig({ sample_rate: 48000 });
   return { session, events, close, stt, tts, onUtterance, onTurnComplete };
 }
+
+const fixtureWith = (extra: Partial<VoiceTurnSessionConfig>) => fixture(true, extra);
 
 afterEach(() => { jest.useRealTimers(); });
 
@@ -237,4 +240,38 @@ test("what the user said never reaches the console logs", async () => {
     expect(logged).not.toContain("tournesol");
     expect(logged).toContain("stt final");
   } finally { session.shutdown(); log.mockRestore(); }
+});
+
+test("maxTurnMs commits a turn that stays open without a client commit", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(29999);
+    expect(stt.finalize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("maxTurnMs is cancelled by a client commit and does not fire twice", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    session.onClientCommit();
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(60000 - 1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("without maxTurnMs an open turn is never ended on its own", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({});
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(600000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
 });
