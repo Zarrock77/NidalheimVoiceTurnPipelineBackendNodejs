@@ -379,3 +379,47 @@ test("without maxTurnMs an open turn is never ended on its own", async () => {
     expect(stt.finalize).not.toHaveBeenCalled();
   } finally { session.shutdown(); }
 });
+
+test("reaching maxTranscriptChars commits the turn and keeps the full text", async () => {
+  const { session, stt, onUtterance } = await fixture(true, { maxTranscriptChars: 10 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Un objet", false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+    stt.onFinal("secret", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("tres", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(onUtterance.mock.calls[0][0]).toBe("Un objet secret tres");
+  } finally { session.shutdown(); }
+});
+
+test("maxTranscriptChars is disabled by default", async () => {
+  const { session, stt } = await fixture();
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("x".repeat(5000), false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("speech after the automatic cut starts a second turn without committing the first twice", async () => {
+  const { session, stt, tts, onUtterance } = await fixture(true, { maxTranscriptChars: 10 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Un objet secret", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit();
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(2);
+    tts.onAudio(Buffer.alloc(4800).toString("base64")); tts.onFinal(); await idle();
+    stt.onFinal("la suite", true, { fromFinalize: true }); await idle();
+    tts.onAudio(Buffer.alloc(4800).toString("base64")); tts.onFinal(); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(2);
+    expect(onUtterance.mock.calls.map(c => c[0])).toEqual(["Un objet secret", "la suite"]);
+  } finally { session.shutdown(); }
+});
