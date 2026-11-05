@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/).
   reopened for a new sample rate, and two `audio_config` messages sent back to back no
   longer open two STT connections: they are now processed one at a time. A COMMIT received
   while the connection reopens is finalized once the buffered audio has been sent.
+- `SpeechTurn` no longer hard-codes `sample_rate: 24000` in `audio_start`: it announces the rate
+  exposed by the TTS provider (new optional `StreamingTTS.sampleRate`, set by `CartesiaStreamingTTS`
+  and by `ElevenLabsStreamingTTS`), falling back to 24000. `ElevenLabsStreamingTTS` now throws at
+  construction when `outputFormat` is not `pcm_<rate>`, since the audio is always announced as
+  `pcm_s16le` and any other format would play as noise.
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
   `stt final` log now reports only its length. The transcript is personal data and the
   library logs to the host's stdout.
