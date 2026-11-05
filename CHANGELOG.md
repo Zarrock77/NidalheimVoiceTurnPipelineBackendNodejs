@@ -17,6 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/).
   `stt final` log now reports only its length. The transcript is personal data and the
   library logs to the host's stdout.
 
+### Removed
+- Deepgram `vad_events` option, the catch-all console listener on unused Deepgram events,
+  the `[dg Transcript empty]` log and the per-chunk "audio chunk #N" log of
+  `VoiceTurnSession`. The "commit received" log no longer prints a chunk count.
+
 ## [0.1.0] - 2026-10-01
 
 First public release, extracted from the voice pipeline of Nidalheim's `api-game`.

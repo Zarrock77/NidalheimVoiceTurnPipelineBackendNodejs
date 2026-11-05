@@ -238,3 +238,14 @@ test("what the user said never reaches the console logs", async () => {
     expect(logged).toContain("stt final");
   } finally { session.shutdown(); log.mockRestore(); }
 });
+
+test("audio chunks are not logged one by one", async () => {
+  const log = jest.spyOn(console, "log").mockImplementation(() => {});
+  const { session, stt } = await fixture();
+  try {
+    record(session, stt, "bonjour"); await idle();
+    const logged = log.mock.calls.map(args => args.join(" ")).join("\n");
+    expect(logged).not.toContain("audio chunk #");
+    expect(logged).toContain("commit received");
+  } finally { session.shutdown(); log.mockRestore(); }
+});
