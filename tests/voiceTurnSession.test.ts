@@ -297,4 +297,20 @@ describe("utteranceTimeoutMs", () => {
       expect(events.some(e => e.type === "error")).toBe(false);
     } finally { session.shutdown(); }
   });
+
+  test("a reply that rejects after the timeout raises no second error and no unhandled rejection", async () => {
+    jest.useFakeTimers();
+    const unhandled = jest.fn();
+    process.on("unhandledRejection", unhandled);
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      let rejectLate!: (e: Error) => void;
+      onUtterance.mockImplementationOnce(() => new Promise<string>((_, reject) => { rejectLate = reject; }));
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(1000);
+      rejectLate(new Error("llm failed")); await jest.advanceTimersByTimeAsync(0);
+      jest.useRealTimers(); await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(events.filter(e => e.type === "error")).toEqual([{ type: "error", message: "The reply took too long. Please try again." }]);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally { process.off("unhandledRejection", unhandled); session.shutdown(); }
+  });
 });

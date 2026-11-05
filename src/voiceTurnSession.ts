@@ -347,6 +347,7 @@ export class VoiceTurnSession {
         }
         turn.write(delta);
       });
+      call.catch(() => {}); // a late rejection after the timeout must not become an unhandledRejection
       const full = this.utteranceTimeoutMs > 0
         ? await Promise.race([call, new Promise<never>((_, reject) => {
             this.utteranceTimer = setTimeout(() => { timedOut = true; reject(new Error("reply timeout")); }, this.utteranceTimeoutMs);
