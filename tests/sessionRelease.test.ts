@@ -28,7 +28,9 @@ class FakeSTT implements StreamingSTT {
 }
 
 const SESSIONS = 200;
-const WITH_TURN = 50;
+const FULL_TURNS = 50;
+const UNFINISHED_TTS = 20; // shut down while the TTS has not sent its final audio
+const HUNG_REPLY = 20; // shut down while onUtterance never resolves
 
 const idle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const macrotask = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -45,9 +47,10 @@ function findGc(): (() => void) | undefined {
 const gc = findGc();
 
 // Returns only weak references: no strong reference to a session survives this function.
-async function runSessions(): Promise<WeakRef<VoiceTurnSession>[]> {
+async function runSessions(): Promise<{ refs: WeakRef<VoiceTurnSession>[]; repliesDelivered: number }> {
   const refs: WeakRef<VoiceTurnSession>[] = [];
-  let sessions: VoiceTurnSession[] = [];
+  const sessions: VoiceTurnSession[] = [];
+  let repliesDelivered = 0; // onTurnComplete fires after the reply, before the TTS final
   for (let i = 0; i < SESSIONS; i++) {
     const stt = new FakeSTT();
     const tts = new FakeTTS();
@@ -56,24 +59,26 @@ async function runSessions(): Promise<WeakRef<VoiceTurnSession>[]> {
       close: () => {},
       stt,
       ttsRoute: { persistent: true, instance: tts },
-      onUtterance: async (_userText, onDelta) => { onDelta("Bonjour."); return "Bonjour."; },
-      onTurnComplete: async () => {},
+      onUtterance: async (_userText, onDelta) => {
+        if (i >= FULL_TURNS + UNFINISHED_TTS) return new Promise<string>(() => {});
+        onDelta("Bonjour."); return "Bonjour.";
+      },
+      onTurnComplete: async () => { repliesDelivered++; },
     });
     await session.start();
     await session.onClientAudioConfig({ sample_rate: 48000 });
-    if (i < WITH_TURN) {
+    if (i < FULL_TURNS + UNFINISHED_TTS + HUNG_REPLY) {
       session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit();
       stt.onFinal("Une demande", true, { fromFinalize: true, end: stt.audioSecondsSent });
       await idle();
       tts.onAudio(Buffer.alloc(4800).toString("base64"));
-      tts.onFinal(); await idle();
+      if (i < FULL_TURNS) { tts.onFinal(); await idle(); }
     }
     sessions.push(session);
     refs.push(new WeakRef(session));
   }
   for (const session of sessions) session.shutdown();
-  sessions = [];
-  return refs;
+  return { refs, repliesDelivered };
 }
 
 beforeEach(() => { jest.spyOn(console, "log").mockImplementation(() => {}); });
@@ -81,13 +86,15 @@ afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
 
 test("shutdown leaves no timer behind on any session", async () => {
   jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
-  await runSessions();
+  const { repliesDelivered } = await runSessions();
+  expect(repliesDelivered).toBe(FULL_TURNS + UNFINISHED_TTS);
   expect(jest.getTimerCount()).toBe(0);
 });
 
 // Skipped, not flaky, when the runtime cannot expose gc (run with `node --expose-gc` to force it).
 (gc ? test : test.skip)("sessions are garbage-collected after shutdown (needs gc)", async () => {
-  const refs = await runSessions();
+  const { refs, repliesDelivered } = await runSessions();
+  expect(repliesDelivered).toBe(FULL_TURNS + UNFINISHED_TTS);
   for (let i = 0; i < 10 && refs.some((r) => r.deref()); i++) {
     await macrotask();
     gc!();

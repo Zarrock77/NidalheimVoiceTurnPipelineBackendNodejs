@@ -12,7 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   tag/version validation and package checks on pull requests and manual runs.
 - Maintainer instructions for the first npm publication and subsequent releases.
 - Test proving that `VoiceTurnSession`s are released (no timer left, garbage-collected) after
-  `shutdown()`.
+  `shutdown()`, including a disconnect in the middle of a reply.
 
 ### Fixed
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
