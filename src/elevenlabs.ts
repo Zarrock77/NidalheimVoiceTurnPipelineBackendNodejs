@@ -32,6 +32,8 @@ export class ElevenLabsStreamingTTS {
   private readonly voiceId: string;
   private readonly modelId: string;
   private readonly outputFormat: string;
+  /** Sample rate of a `pcm_<rate>` output format; undefined for other formats. */
+  readonly sampleRate: number | undefined;
   private readonly languageCode: string | undefined;
   private readonly autoMode: boolean;
   private readonly voiceSettings: ElevenLabsVoiceSettings;
@@ -63,6 +65,8 @@ export class ElevenLabsStreamingTTS {
     this.voiceId = voiceId;
     this.modelId = modelId;
     this.outputFormat = outputFormat;
+    const pcm = /^pcm_(\d+)$/.exec(outputFormat);
+    this.sampleRate = pcm ? Number(pcm[1]) : undefined;
     this.languageCode = languageCode;
     this.autoMode = autoMode;
     this.voiceSettings = {

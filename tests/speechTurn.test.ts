@@ -10,6 +10,7 @@ class FakeTTS implements StreamingTTS {
   sendText = jest.fn<(text: string) => void>();
   flush = jest.fn();
   close = jest.fn();
+  sampleRate?: number;
 }
 
 const ready = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -90,4 +91,13 @@ test("per-turn providers close on success and an empty reply cannot block the ne
   const next = new SpeechTurn(new FakeTTS(), (e) => events.push(e), false);
   await next.finishText();
   expect(events.at(-1)).toMatchObject({ type: "audio_end", status: "ok", audio_frames: 0 });
+});
+
+test("audio_start announces the sample rate of the TTS, 24000 when it does not expose one", async () => {
+  const events: Record<string, unknown>[] = [];
+  const fast = new FakeTTS(); fast.sampleRate = 16000;
+  new SpeechTurn(fast, (e) => events.push(e), false);
+  new SpeechTurn(new FakeTTS(), (e) => events.push(e), false);
+  await ready();
+  expect(events.map(e => e.sample_rate)).toEqual([16000, 24000]);
 });
