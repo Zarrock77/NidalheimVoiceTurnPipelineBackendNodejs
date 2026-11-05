@@ -77,7 +77,6 @@ export class DeepgramStreamingSTT {
       interim_results: true,
       endpointing: this.endpointingMs,
       utterance_end_ms: this.utteranceEndMs,
-      vad_events: true,
     };
     this.live = this.client.listen.live(liveOptions);
     const live = this.live;
@@ -94,20 +93,8 @@ export class DeepgramStreamingSTT {
       this.onError(err);
     });
 
-    for (const [evName, evValue] of Object.entries(LiveTranscriptionEvents)) {
-      if (["Open", "Error", "Transcript", "UtteranceEnd"].includes(evName)) continue;
-      live.on(evValue as LiveTranscriptionEvents, (...args: unknown[]) => {
-        const preview = JSON.stringify(args[0] ?? {}).slice(0, 400);
-        console.log(`[dg ${evName}]`, preview);
-      });
-    }
-
     live.on(LiveTranscriptionEvents.Transcript, (event: DeepgramTranscriptEvent) => {
       if (this.live !== live) return;
-      const rawPreview = JSON.stringify(event).slice(0, 400);
-      if (!event?.channel?.alternatives?.[0]?.transcript) {
-        console.log("[dg Transcript empty]", rawPreview);
-      }
       let text = event?.channel?.alternatives?.[0]?.transcript ?? "";
       if (event.is_final) {
         // Empty final results still carry completion of the audio stream.

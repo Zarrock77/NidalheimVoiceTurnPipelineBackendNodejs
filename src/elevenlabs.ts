@@ -32,6 +32,8 @@ export class ElevenLabsStreamingTTS {
   private readonly voiceId: string;
   private readonly modelId: string;
   private readonly outputFormat: string;
+  /** Sample rate of the `pcm_<rate>` output format. */
+  readonly sampleRate: number;
   private readonly languageCode: string | undefined;
   private readonly autoMode: boolean;
   private readonly voiceSettings: ElevenLabsVoiceSettings;
@@ -63,6 +65,10 @@ export class ElevenLabsStreamingTTS {
     this.voiceId = voiceId;
     this.modelId = modelId;
     this.outputFormat = outputFormat;
+    // SpeechTurn always announces pcm_s16le, so any other format would play as noise.
+    const pcm = /^pcm_(\d+)$/.exec(outputFormat);
+    if (!pcm) throw new Error("ElevenLabsStreamingTTS: only pcm_<rate> output formats are supported");
+    this.sampleRate = Number(pcm[1]);
     this.languageCode = languageCode;
     this.autoMode = autoMode;
     this.voiceSettings = {

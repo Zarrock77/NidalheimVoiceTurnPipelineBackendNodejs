@@ -73,8 +73,26 @@ export interface VoiceTurnSessionConfig {
   label?: string;
   keepAliveIntervalMs?: number;
   finalizationTimeoutMs?: number;
+  /**
+   * Hands-free mode: once the user has been silent this long after a `speech_final`
+   * (no new words in between), the turn is committed as if the client had sent a commit.
+   * Off by default (0 / undefined): the turn then only ends on `onClientCommit()`.
+   */
+  silenceTimeoutMs?: number;
+  /**
+   * Upper bound on how long an input turn may stay open before it is committed
+   * (a stuck push-to-talk key, a client that never commits). Off by default (0 / undefined).
+   * If nothing was recognized, the usual `noSpeechRecognized` error applies.
+   */
+  maxTurnMs?: number;
   /** How many seconds of PCM16 mono audio may queue while a commit is being finalized. Default: 15. */
   maxQueuedAudioSeconds?: number;
+  /**
+   * Commits the turn on its own once the recognized text of the open input reaches this
+   * many characters, as if the client had sent COMMIT. The text is kept, not truncated.
+   * Speech after the cut starts a new turn. Default: 0 (disabled).
+   */
+  maxTranscriptChars?: number;
   /**
    * Longest time `onUtterance` may take to resolve. On expiry the turn is cancelled, the
    * client gets the `replyTimeout` error, the next queued utterance starts, and anything the
@@ -102,7 +120,12 @@ export class VoiceTurnSession {
   private readonly label: string;
   private readonly keepAliveIntervalMs: number;
   private readonly finalizationTimeoutMs: number;
+  private readonly silenceTimeoutMs: number;
+  private silenceTimer: NodeJS.Timeout | null = null;
+  private readonly maxTurnMs: number;
+  private maxTurnTimer: NodeJS.Timeout | null = null;
   private readonly maxQueuedAudioSeconds: number;
+  private readonly maxTranscriptChars: number;
   private readonly utteranceTimeoutMs: number;
   private readonly messages: VoiceTurnSessionMessages;
 
@@ -120,11 +143,10 @@ export class VoiceTurnSession {
   private disposed = false;
   private keepAliveTimer: NodeJS.Timeout | null = null;
   private utteranceTimer: NodeJS.Timeout | null = null;
-  private _audioChunks = 0;
-  private _audioBytes = 0;
   private _awaitingFirstConfig = true;
   private _preConfigBuffer: Buffer[] | null = null;
   private _sttOpened = false;
+  private _configChain: Promise<void> = Promise.resolve();
 
   constructor(config: VoiceTurnSessionConfig) {
     this.send = config.send;
@@ -136,7 +158,10 @@ export class VoiceTurnSession {
     this.label = config.label ?? "voice-turn-session";
     this.keepAliveIntervalMs = config.keepAliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.finalizationTimeoutMs = config.finalizationTimeoutMs ?? DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS;
+    this.silenceTimeoutMs = config.silenceTimeoutMs ?? 0;
+    this.maxTurnMs = config.maxTurnMs ?? 0;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
+    this.maxTranscriptChars = config.maxTranscriptChars ?? 0;
     const timeoutMs = config.utteranceTimeoutMs ?? DEFAULT_UTTERANCE_TIMEOUT_MS;
     this.utteranceTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_TIMER_MS ? timeoutMs : 0;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
@@ -145,6 +170,7 @@ export class VoiceTurnSession {
   async start(): Promise<void> {
     this.stt.onInterim = (text) => {
       if (!this.inputOpen || this.disposed) return;
+      this._clearSilenceTimer(); // the user is speaking again
       this._send({ type: "user_transcript_partial", data: text });
     };
 
@@ -160,6 +186,11 @@ export class VoiceTurnSession {
       }
       // Never log what the user said: it is personal data, and this library logs to the host's stdout.
       console.log(`[${this.label}] stt final: ${text.length} characters speech_final=${speechFinal} commit=${this.commitRequested}`);
+      if (this.maxTranscriptChars > 0 && !this.commitRequested && this.pendingTranscript.length >= this.maxTranscriptChars) {
+        console.log(`[${this.label}] transcript reached ${this.pendingTranscript.length} characters (limit ${this.maxTranscriptChars}), committing`);
+        this.onClientCommit();
+      }
+      this._armSilenceTimer(speechFinal && !!clean);
       // PTT ends at COMMIT, not at a pause midway through a sentence.
       // A final segment alone may precede the remaining words of this turn.
       if (this.commitRequested && ((info.fromFinalize && info.end !== null) || this._inputAudioProcessed())) {
@@ -207,11 +238,7 @@ export class VoiceTurnSession {
       this.inputOpen = true;
       this.inputTurnId++;
       this.inputStartSeconds = this.stt.audioSecondsSent;
-    }
-    this._audioChunks++;
-    this._audioBytes += pcm16Buffer.length;
-    if (this._audioChunks === 1 || this._audioChunks % 100 === 0) {
-      console.log(`[${this.label}] audio chunk #${this._audioChunks}, ${pcm16Buffer.length}B (cum ${this._audioBytes}B)`);
+      this._armMaxTurnTimer();
     }
     if (this._awaitingFirstConfig) {
       if (!this._preConfigBuffer) this._preConfigBuffer = [];
@@ -231,7 +258,9 @@ export class VoiceTurnSession {
       return;
     }
     if (!this.inputOpen) return;
-    console.log(`[${this.label}] commit received (chunks so far: ${this._audioChunks})`);
+    console.log(`[${this.label}] commit received`);
+    this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this.commitRequested = true;
     const turnId = this.inputTurnId;
     this.finalizationTimer = setTimeout(() => {
@@ -242,13 +271,43 @@ export class VoiceTurnSession {
     this._finalizeInput();
   }
 
+  private _clearSilenceTimer(): void {
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+
+  /** Arms the silence commit only after a speech_final with words; any other result disarms it. */
+  private _armSilenceTimer(arm: boolean): void {
+    this._clearSilenceTimer();
+    if (!arm || this.silenceTimeoutMs <= 0 || this.commitRequested) return;
+    const turnId = this.inputTurnId;
+    this.silenceTimer = setTimeout(() => {
+      this.silenceTimer = null;
+      if (this.inputOpen && !this.commitRequested && this.inputTurnId === turnId) this.onClientCommit();
+    }, this.silenceTimeoutMs);
+  }
+
+  private _clearMaxTurnTimer(): void {
+    if (this.maxTurnTimer) clearTimeout(this.maxTurnTimer);
+    this.maxTurnTimer = null;
+  }
+
+  private _armMaxTurnTimer(): void {
+    if (this.maxTurnMs <= 0) return;
+    const turnId = this.inputTurnId;
+    this.maxTurnTimer = setTimeout(() => {
+      this.maxTurnTimer = null;
+      if (this.inputOpen && !this.commitRequested && this.inputTurnId === turnId) this.onClientCommit();
+    }, this.maxTurnMs);
+  }
+
   private _inputAudioProcessed(): boolean {
     return this._sttOpened && this.stt.audioSecondsSent > 0
       && this.stt.finalAudioSeconds + 0.0001 >= this.stt.audioSecondsSent;
   }
 
   private _finalizeInput(): void {
-    if (this.disposed || !this.commitRequested || !this._sttOpened) return;
+    if (this.disposed || !this.commitRequested || !this._sttOpened || this._awaitingFirstConfig) return;
     if (this._inputAudioProcessed()) this._flushUtterance();
     else if (!this.stt.finalize()) this._failInput(this.messages.sttDisconnected);
   }
@@ -262,7 +321,14 @@ export class VoiceTurnSession {
     this.closeTransport(1011, "speech input failed");
   }
 
-  async onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+  // Serialized: a second audio_config waits for the first, so start()/reconfigure() never overlap.
+  onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+    const run = this._configChain.then(() => this._applyAudioConfig(msg));
+    this._configChain = run.catch(() => {});
+    return run;
+  }
+
+  private async _applyAudioConfig(msg: AudioConfigMessage): Promise<void> {
     if (this.disposed) return;
     const rate = Number(msg?.sample_rate);
     if (!Number.isFinite(rate) || rate <= 0) return;
@@ -279,6 +345,8 @@ export class VoiceTurnSession {
       } else if (rate !== this.stt.sampleRate) {
         if (this.inputOpen) { this._failInput(this.messages.microphoneFormatChanged); return; }
         console.log(`[${this.label}] reconfiguring STT: ${this.stt.sampleRate} Hz -> ${rate} Hz`);
+        // Buffer audio like before the first config until the new connection is ready.
+        this._awaitingFirstConfig = true;
         await this.stt.reconfigure({ sampleRate: rate });
         console.log(`[${this.label}] STT reconfigured at ${rate} Hz`);
       }
@@ -304,11 +372,11 @@ export class VoiceTurnSession {
     const text = this.pendingTranscript;
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
+    this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this.pendingTranscript = "";
     this.commitRequested = false;
     this.inputOpen = false;
-    this._audioChunks = 0;
-    this._audioBytes = 0;
     console.log(`[${this.label}] input turn ${this.inputTurnId} finalized (${text.length} characters)`);
     if (text) void this._handleUtterance(text);
     else this._send({ type: "error", message: this.messages.noSpeechRecognized });
@@ -394,6 +462,8 @@ export class VoiceTurnSession {
     this.disposed = true;
     if (this.finalizationTimer) clearTimeout(this.finalizationTimer);
     this.finalizationTimer = null;
+    this._clearSilenceTimer();
+    this._clearMaxTurnTimer();
     this._clearUtteranceTimer();
     this.queuedInput.length = 0;
     this.queuedInputBytes = 0;
