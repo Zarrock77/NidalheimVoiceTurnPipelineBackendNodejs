@@ -1,6 +1,16 @@
 import WebSocket from "ws";
 import { randomUUID } from "crypto";
 
+export const CARTESIA_EMOTIONS = ["neutral", "calm", "angry", "content", "sad", "scared"] as const;
+
+export type CartesiaEmotion = (typeof CARTESIA_EMOTIONS)[number];
+
+export function normaliseEmotion(value: string | null | undefined): CartesiaEmotion | null {
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  return (CARTESIA_EMOTIONS as readonly string[]).includes(v) ? (v as CartesiaEmotion) : null;
+}
+
 export interface CartesiaStreamingTTSOptions {
   voiceId: string;
   modelId?: string;
@@ -21,6 +31,7 @@ interface CartesiaFrame {
     sample_rate: number;
   };
   continue: boolean;
+  generation_config?: { emotion: CartesiaEmotion };
 }
 
 interface CartesiaMessage {
@@ -40,6 +51,7 @@ export class CartesiaStreamingTTS {
   private readonly apiVersion: string;
   private ws: WebSocket | null = null;
   private contextId: string | null = null;
+  private emotion: CartesiaEmotion | null = null;
   private opening: Promise<void> | null = null;
 
   onAudio: (base64Pcm: string) => void = () => {};
@@ -141,6 +153,11 @@ export class CartesiaStreamingTTS {
     });
   }
 
+  setEmotion(value: string | null | undefined): CartesiaEmotion | null {
+    this.emotion = normaliseEmotion(value);
+    return this.emotion;
+  }
+
   beginUtterance(): void {
     if (this.contextId) throw new Error("Previous Cartesia utterance has not finished");
     this.contextId = randomUUID();
@@ -181,6 +198,7 @@ export class CartesiaStreamingTTS {
         sample_rate: this.sampleRate,
       },
       continue: cont,
+      ...(this.emotion ? { generation_config: { emotion: this.emotion } } : {}),
     };
   }
 }

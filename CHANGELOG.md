@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `CartesiaStreamingTTS.setEmotion()`: optional per-utterance emotion sent as Cartesia's
+  `generation_config.emotion`, limited to the six documented emotions (`CARTESIA_EMOTIONS`,
+  `normaliseEmotion()` exported); an unknown value is dropped. Nothing changes when no emotion is set.
 - `silenceTimeoutMs` option on `VoiceTurnSession` (hands-free): commits the turn once the user
   has been silent that long after a `speech_final`. Off by default; push-to-talk is unchanged.
 - `maxTurnMs` option on `VoiceTurnSession`: commits an input turn that has stayed open that long

@@ -67,3 +67,38 @@ test("exposes the sample rate it was configured with", () => {
   expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v" }).sampleRate).toBe(24000);
   expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v", sampleRate: 16000 }).sampleRate).toBe(16000);
 });
+
+test("normaliseEmotion accepts the documented emotions and rejects anything else", async () => {
+  const { normaliseEmotion, CARTESIA_EMOTIONS } = await import("../src/cartesia.js");
+  for (const e of CARTESIA_EMOTIONS) expect(normaliseEmotion(e)).toBe(e);
+  expect(normaliseEmotion("  ANGRY  ")).toBe("angry");
+  expect(normaliseEmotion("furious")).toBeNull();
+  expect(normaliseEmotion("")).toBeNull();
+  expect(normaliseEmotion(null)).toBeNull();
+  expect(normaliseEmotion(undefined)).toBeNull();
+  expect(normaliseEmotion(42 as unknown as string)).toBeNull();
+});
+
+test("no generation_config is sent unless an emotion is set", async () => {
+  const tts = new CartesiaStreamingTTS("fake-key", { voiceId: "test-voice" });
+  const opened = tts.start(); sockets[0].open(); await opened;
+  tts.beginUtterance(); tts.sendText("Bonjour."); tts.flush();
+  for (const frame of sockets[0].sent) expect(frame.generation_config).toBeUndefined();
+});
+
+test("a known emotion rides on every frame of the utterance, including the final one", async () => {
+  const tts = new CartesiaStreamingTTS("fake-key", { voiceId: "test-voice" });
+  const opened = tts.start(); sockets[0].open(); await opened;
+  expect(tts.setEmotion("angry")).toBe("angry");
+  tts.beginUtterance(); tts.sendText("Le fer."); tts.sendText(" Ne ment pas."); tts.flush();
+  expect(sockets[0].sent).toHaveLength(3);
+  for (const frame of sockets[0].sent) expect(frame.generation_config).toEqual({ emotion: "angry" });
+});
+
+test("an unknown emotion falls back to no generation_config instead of being forwarded", async () => {
+  const tts = new CartesiaStreamingTTS("fake-key", { voiceId: "test-voice" });
+  const opened = tts.start(); sockets[0].open(); await opened;
+  expect(tts.setEmotion("hysterical")).toBeNull();
+  tts.beginUtterance(); tts.sendText("Bonjour."); tts.flush();
+  for (const frame of sockets[0].sent) expect(frame.generation_config).toBeUndefined();
+});
