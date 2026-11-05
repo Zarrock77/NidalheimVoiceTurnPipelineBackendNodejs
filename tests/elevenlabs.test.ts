@@ -37,6 +37,7 @@ test("a close before isFinal reports an error once", async () => {
   const failed = jest.fn(); tts.onError = failed;
   sockets[0].close();
   expect(failed).toHaveBeenCalledTimes(1);
+  expect(failed.mock.calls[0][0]).toEqual(new Error("ElevenLabs closed before final audio"));
 });
 
 test("an error message calls onError", async () => {
@@ -59,7 +60,7 @@ test("audio messages are forwarded to onAudio", async () => {
   tts.close();
 });
 
-test("events from a closed or replaced socket are ignored", async () => {
+test("events from a closed socket are ignored", async () => {
   const tts = await started();
   const audio = jest.fn(); const done = jest.fn(); const failed = jest.fn();
   tts.onAudio = audio; tts.onFinal = done; tts.onError = failed;
@@ -68,16 +69,19 @@ test("events from a closed or replaced socket are ignored", async () => {
   sockets[0].emit("close");
   expect(audio).not.toHaveBeenCalled(); expect(done).not.toHaveBeenCalled();
   expect(failed).not.toHaveBeenCalled();
+});
 
-  const second = new ElevenLabsStreamingTTS("fake-key", { voiceId: "test-voice" });
-  second.onAudio = audio; second.onError = failed;
-  const first = second.start(); sockets[1].open(); await first;
-  const restarted = second.start(); sockets[2].open(); await restarted;
-  sockets[1].message({ audio: "OLD" }); sockets[1].emit("close");
-  sockets[2].message({ audio: "NEW" });
+test("a second start() replaces the old socket and ignores its events", async () => {
+  const tts = new ElevenLabsStreamingTTS("fake-key", { voiceId: "test-voice" });
+  const audio = jest.fn(); const failed = jest.fn();
+  tts.onAudio = audio; tts.onError = failed;
+  const first = tts.start(); sockets[0].open(); await first;
+  const restarted = tts.start(); sockets[1].open(); await restarted;
+  sockets[0].message({ audio: "OLD" }); sockets[0].emit("close");
+  sockets[1].message({ audio: "NEW" });
   expect(audio.mock.calls).toEqual([["NEW"]]);
   expect(failed).not.toHaveBeenCalled();
-  second.close();
+  tts.close();
 });
 
 test("sendText appends a trailing space, flush sends empty text, both throw when not connected", async () => {
@@ -85,9 +89,17 @@ test("sendText appends a trailing space, flush sends empty text, both throw when
   expect(() => tts.sendText("Bonjour")).toThrow("not connected");
   expect(() => tts.flush()).toThrow("not connected");
   const opened = tts.start(); sockets[0].open(); await opened;
-  tts.sendText("Bonjour"); tts.sendText("Salut "); tts.flush();
+  tts.sendText(""); tts.sendText("Bonjour"); tts.sendText("Salut "); tts.flush();
   expect(sockets[0].sent.slice(1)).toEqual([{ text: "Bonjour " }, { text: "Salut " }, { text: "" }]);
   tts.close();
   expect(() => tts.sendText("x")).toThrow("not connected");
   expect(() => tts.flush()).toThrow("not connected");
+});
+
+test("sendText and flush throw while the socket is not open yet", () => {
+  const tts = new ElevenLabsStreamingTTS("fake-key", { voiceId: "test-voice" });
+  void tts.start().catch(() => {});
+  expect(() => tts.sendText("Bonjour")).toThrow("not connected");
+  expect(() => tts.flush()).toThrow("not connected");
+  tts.close();
 });
