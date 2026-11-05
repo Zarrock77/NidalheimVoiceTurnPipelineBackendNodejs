@@ -41,6 +41,13 @@ provider instead and you don't need it, as long as it matches the `StreamingSTT`
 - A Deepgram API key for speech-to-text and a Cartesia or ElevenLabs key for text-to-speech, only if you use
   the bundled providers. The tests need **no key**: they use fake providers.
 
+To run the tests from a clone of the repository:
+
+```bash
+pnpm install
+pnpm test
+```
+
 ## Usage
 
 ```ts
@@ -161,6 +168,16 @@ effect varies by voice and by sentence.
 `src/speechTurn.ts`) — anything that matches the shape works, no need to extend a
 base class. Swap in Azure/Google STT or any other TTS vendor by implementing the
 interface and passing an instance in.
+
+## What it does not do
+
+- It is not a server: you bring the WebSocket (or any transport), the LLM call, the conversation history and the
+  authentication. The package only sees text in and text out.
+- Only Deepgram (speech-to-text) and Cartesia or ElevenLabs (text-to-speech) are bundled. Any other vendor means
+  writing a provider against the `StreamingSTT` / `StreamingTTS` interfaces.
+- A turn ends when the client sends the commit signal (push-to-talk). Your client decides when the user stopped
+  speaking.
+- ESM only, Node.js 22 or later. There is no CommonJS build.
 
 ## Scope
 

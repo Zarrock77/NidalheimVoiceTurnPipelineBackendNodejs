@@ -47,7 +47,7 @@ export class CartesiaStreamingTTS {
   private readonly voiceId: string;
   private readonly modelId: string;
   private readonly language: string;
-  private readonly sampleRate: number;
+  readonly sampleRate: number;
   private readonly apiVersion: string;
   private ws: WebSocket | null = null;
   private contextId: string | null = null;

@@ -63,6 +63,11 @@ test("an error marked done cannot be reported as successful completion", async (
   } finally { log.mockRestore(); tts.close(); }
 });
 
+test("exposes the sample rate it was configured with", () => {
+  expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v" }).sampleRate).toBe(24000);
+  expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v", sampleRate: 16000 }).sampleRate).toBe(16000);
+});
+
 test("normaliseEmotion accepts the documented emotions and rejects anything else", async () => {
   const { normaliseEmotion, CARTESIA_EMOTIONS } = await import("../src/cartesia.js");
   for (const e of CARTESIA_EMOTIONS) expect(normaliseEmotion(e)).toBe(e);
