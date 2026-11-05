@@ -41,6 +41,13 @@ provider instead and you don't need it, as long as it matches the `StreamingSTT`
 - A Deepgram API key for speech-to-text and a Cartesia or ElevenLabs key for text-to-speech, only if you use
   the bundled providers. The tests need **no key**: they use fake providers.
 
+To run the tests from a clone of the repository:
+
+```bash
+pnpm install
+pnpm test
+```
+
 ## Usage
 
 ```ts
@@ -140,6 +147,23 @@ Events `VoiceTurnSession` sends back via `send`:
 base class. Swap in Azure/Google STT or any other TTS vendor by implementing the
 interface and passing an instance in.
 
+## What it does not do
+
+- It is not a server: you bring the WebSocket (or any transport), the LLM call, the conversation history and the
+  authentication. The package only sees text in and text out.
+- Only Deepgram (speech-to-text) and Cartesia or ElevenLabs (text-to-speech) are bundled. Any other vendor means
+  writing a provider against the `StreamingSTT` / `StreamingTTS` interfaces.
+- A turn ends when the client sends the commit signal (push-to-talk). Your client decides when the user stopped
+  speaking.
+- ESM only, Node.js 22 or later. There is no CommonJS build.
+
+## Scope
+
+This package and the [NidalheimVoiceTurnPipeline](https://github.com/Zarrock77/NidalheimVoiceTurnPipelinePluginUE5) UE5 plugin are the only parts of the Nidalheim game that are open source. They contain no game-specific
+code and can be reused on their own. Everything else stays closed: the game itself, the quest system, the NPC data
+(prompts, voices, model choices), the authentication plugin, and the backend services and infrastructure. That is
+where the game's own value lies, and none of it is needed to use this package.
+
 ## Roadmap
 
 What is planned and what is open to contributions: [ROADMAP.md](ROADMAP.md). Newcomers: look for the
@@ -147,6 +171,10 @@ What is planned and what is open to contributions: [ROADMAP.md](ROADMAP.md). New
 How decisions are made: [GOVERNANCE.md](GOVERNANCE.md).
 
 ## Contributing
+
+**Just tried to install it?** Tell us how it went, even if it went well: open an issue with the
+[Installation test report](../../issues/new?template=install-test.yml) form. What you had to guess is what the
+documentation is missing.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and PRs welcome.
 
