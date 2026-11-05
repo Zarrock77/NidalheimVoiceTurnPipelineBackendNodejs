@@ -22,6 +22,12 @@ neither is available). CI also rescans the full history on every push/PR.
 - `pnpm run typecheck` — type-check without emitting.
 - `pnpm test` — run the Jest suite (`pnpm run test:watch` to iterate).
 
+`tests/sessionRelease.test.ts` checks that sessions are released after `shutdown()`: it
+creates 200 `VoiceTurnSession`s (some after a full turn), shuts them all down, then asserts
+that no timer is left and that every session is garbage-collected (via `WeakRef`). The GC
+assertion uses `--expose-gc` when available, enables it at runtime otherwise, and is
+skipped with a visible "skipped" test if neither works.
+
 Run `pnpm run typecheck` and `pnpm test` before opening a pull request; both also run
 in CI on every push and pull request.
 
