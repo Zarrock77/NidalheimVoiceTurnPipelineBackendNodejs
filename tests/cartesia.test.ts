@@ -62,3 +62,8 @@ test("an error marked done cannot be reported as successful completion", async (
     expect(failed).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled();
   } finally { log.mockRestore(); tts.close(); }
 });
+
+test("exposes the sample rate it was configured with", () => {
+  expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v" }).sampleRate).toBe(24000);
+  expect(new CartesiaStreamingTTS("fake-key", { voiceId: "v", sampleRate: 16000 }).sampleRate).toBe(16000);
+});

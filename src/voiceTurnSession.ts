@@ -115,11 +115,10 @@ export class VoiceTurnSession {
   private queuedInputBytes = 0;
   private disposed = false;
   private keepAliveTimer: NodeJS.Timeout | null = null;
-  private _audioChunks = 0;
-  private _audioBytes = 0;
   private _awaitingFirstConfig = true;
   private _preConfigBuffer: Buffer[] | null = null;
   private _sttOpened = false;
+  private _configChain: Promise<void> = Promise.resolve();
 
   constructor(config: VoiceTurnSessionConfig) {
     this.send = config.send;
@@ -204,11 +203,6 @@ export class VoiceTurnSession {
       this.inputTurnId++;
       this.inputStartSeconds = this.stt.audioSecondsSent;
     }
-    this._audioChunks++;
-    this._audioBytes += pcm16Buffer.length;
-    if (this._audioChunks === 1 || this._audioChunks % 100 === 0) {
-      console.log(`[${this.label}] audio chunk #${this._audioChunks}, ${pcm16Buffer.length}B (cum ${this._audioBytes}B)`);
-    }
     if (this._awaitingFirstConfig) {
       if (!this._preConfigBuffer) this._preConfigBuffer = [];
       this._preConfigBuffer.push(pcm16Buffer);
@@ -227,7 +221,7 @@ export class VoiceTurnSession {
       return;
     }
     if (!this.inputOpen) return;
-    console.log(`[${this.label}] commit received (chunks so far: ${this._audioChunks})`);
+    console.log(`[${this.label}] commit received`);
     this._clearSilenceTimer();
     this.commitRequested = true;
     const turnId = this.inputTurnId;
@@ -261,7 +255,7 @@ export class VoiceTurnSession {
   }
 
   private _finalizeInput(): void {
-    if (this.disposed || !this.commitRequested || !this._sttOpened) return;
+    if (this.disposed || !this.commitRequested || !this._sttOpened || this._awaitingFirstConfig) return;
     if (this._inputAudioProcessed()) this._flushUtterance();
     else if (!this.stt.finalize()) this._failInput(this.messages.sttDisconnected);
   }
@@ -275,7 +269,14 @@ export class VoiceTurnSession {
     this.closeTransport(1011, "speech input failed");
   }
 
-  async onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+  // Serialized: a second audio_config waits for the first, so start()/reconfigure() never overlap.
+  onClientAudioConfig(msg: AudioConfigMessage): Promise<void> {
+    const run = this._configChain.then(() => this._applyAudioConfig(msg));
+    this._configChain = run.catch(() => {});
+    return run;
+  }
+
+  private async _applyAudioConfig(msg: AudioConfigMessage): Promise<void> {
     if (this.disposed) return;
     const rate = Number(msg?.sample_rate);
     if (!Number.isFinite(rate) || rate <= 0) return;
@@ -292,6 +293,8 @@ export class VoiceTurnSession {
       } else if (rate !== this.stt.sampleRate) {
         if (this.inputOpen) { this._failInput(this.messages.microphoneFormatChanged); return; }
         console.log(`[${this.label}] reconfiguring STT: ${this.stt.sampleRate} Hz -> ${rate} Hz`);
+        // Buffer audio like before the first config until the new connection is ready.
+        this._awaitingFirstConfig = true;
         await this.stt.reconfigure({ sampleRate: rate });
         console.log(`[${this.label}] STT reconfigured at ${rate} Hz`);
       }
@@ -321,8 +324,6 @@ export class VoiceTurnSession {
     this.pendingTranscript = "";
     this.commitRequested = false;
     this.inputOpen = false;
-    this._audioChunks = 0;
-    this._audioBytes = 0;
     console.log(`[${this.label}] input turn ${this.inputTurnId} finalized (${text.length} characters)`);
     if (text) void this._handleUtterance(text);
     else this._send({ type: "error", message: this.messages.noSpeechRecognized });
