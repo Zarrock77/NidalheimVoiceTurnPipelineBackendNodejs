@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { VoiceTurnSession, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
+import { VoiceTurnSession, type VoiceTurnSessionConfig, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
 import type { StreamingTTS } from "../src/speechTurn.js";
 import type { StreamingSTT, FinalTranscriptInfo } from "../src/types.js";
 
@@ -24,7 +24,7 @@ class FakeSTT implements StreamingSTT {
   get onFinal(): (text: string, final: boolean, info: PartialFinalInfo) => void {
     return (text, final, info) => this.finalHandler(text, final, { end: this.audioSecondsSent, ...info });
   }
-  onInterim = () => {}; onError = () => {}; onUtteranceEnd = () => {};
+  onInterim: (text: string) => void = () => {}; onError = () => {}; onUtteranceEnd = () => {};
   sampleRate = 48000; audioSecondsSent = 0; finalAudioSeconds = 0;
   start = jest.fn(async () => {});
   sendAudio = jest.fn((b: Buffer) => { this.audioSecondsSent += b.length / 96000; });
@@ -40,7 +40,7 @@ const record = (session: VoiceTurnSession, stt: FakeSTT, text: string) => {
   stt.onFinal(text, true, { fromFinalize: true });
 };
 
-async function fixture(configure = true) {
+async function fixture(configure = true, extra: Partial<VoiceTurnSessionConfig> = {}) {
   const events: Record<string, unknown>[] = [];
   const close = jest.fn();
   const stt = new FakeSTT();
@@ -56,11 +56,14 @@ async function fixture(configure = true) {
     ttsRoute: { persistent: true, instance: tts },
     onUtterance,
     onTurnComplete,
+    ...extra,
   });
   await session.start();
   if (configure) await session.onClientAudioConfig({ sample_rate: 48000 });
   return { session, events, close, stt, tts, onUtterance, onTurnComplete };
 }
+
+const fixtureWith = (extra: Partial<VoiceTurnSessionConfig>) => fixture(true, extra);
 
 afterEach(() => { jest.useRealTimers(); });
 
@@ -300,5 +303,45 @@ test("COMMIT during a reconfigure is finalized only after it resolves", async ()
     expect(onUtterance).toHaveBeenCalledTimes(1);
     expect(events.some(e => e.type === "error")).toBe(false);
     expect(close).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("silenceTimeoutMs commits the turn after silence following a speech_final", async () => {
+  jest.useFakeTimers();
+  const { session, stt, onUtterance } = await fixtureWith({ silenceTimeoutMs: 1000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(999);
+    expect(stt.finalize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true });
+    await Promise.resolve(); await Promise.resolve();
+    expect(onUtterance).toHaveBeenCalledWith("Bonjour", expect.any(Function));
+  } finally { session.shutdown(); }
+});
+
+test("silenceTimeoutMs is cancelled when the user resumes speaking", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ silenceTimeoutMs: 1000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(900);
+    stt.onInterim("et");
+    jest.advanceTimersByTime(5000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("without silenceTimeoutMs the turn never ends on its own", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({});
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(60000);
+    expect(stt.finalize).not.toHaveBeenCalled();
   } finally { session.shutdown(); }
 });
