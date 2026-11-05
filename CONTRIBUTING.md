@@ -33,8 +33,29 @@ in CI on every push and pull request.
 
 ## Branches and commits
 
-- Work off a feature branch, not `main` directly — `main` is protected, a direct
-  `git push` to it is rejected by GitHub, including for the maintainer.
+The repository has two long-lived branches:
+
+| Branch | Holds | Receives |
+| --- | --- | --- |
+| `dev` | Integrated work, not released yet | Squash-merged pull requests from work branches |
+| `main` | Released code only | Release branches, with a merge commit |
+
+```text
+feat/… ─┐ squash and merge
+fix/…  ─┼──────────────────▶ dev ──▶ release/vX.Y.Z ──merge commit──▶ main
+docs/… ─┘                     ▲                                        │
+                              └──────── merge main back into dev ──────┘
+```
+
+- Cut a short-lived branch from an up-to-date `dev` and name it after the kind of
+  change: `feat/…`, `fix/…`, `test/…`, `docs/…`, `chore/…`.
+- Open the pull request **into `dev`**, never into `main`. It is merged with
+  **Squash and merge**: `dev` gets one commit per pull request, titled after the PR
+  (`<PR title> (#<number>)`). The work branch is deleted after the merge.
+- Never push to `main` or `dev` directly. `main` is protected: a direct `git push`
+  is rejected by GitHub, including for the maintainer.
+- `dev` into `main` only happens through a release branch: see
+  [Subsequent releases](#subsequent-releases).
 - Commit messages: a short, descriptive summary line is enough (no strict format
   enforced). Explain *why* in the body if the change isn't self-evident from the diff.
 
@@ -47,8 +68,12 @@ contribution workflow and require green CI checks before merging.
 - Describe what changed and why; link any related issue.
 - A PR that changes behavior should update `README.md` if the public API or usage
   changed.
-- Branch protection requires the `test` and `Scan git history` (gitleaks) checks to
-  pass and be up to date with `main` before a PR is mergeable. No human approval is
+- Target `dev`. The only pull requests into `main` are release pull requests.
+- Branch protection on `main` requires the `test` and `Scan git history` (gitleaks)
+  checks to pass and be up to date with `main` before a PR is mergeable. Pull requests
+  into `dev` run the same checks; merge them only once they are green.
+- If `dev` moved since you opened your pull request, merge `dev` into your branch and
+  resolve the conflicts there (a squash merge then folds that merge commit away). No human approval is
   required by GitHub (solo-maintainer project), but the maintainer may still comment
   or ask for changes before merging.
 
@@ -98,13 +123,25 @@ No `NPM_TOKEN` or `NODE_AUTH_TOKEN` secret is needed. See the official
 
 ### Subsequent releases
 
-1. Open an issue and a release-preparation PR. Update the version in `package.json`
-   and move the relevant changelog entries from `Unreleased` into the new version.
-2. Merge only after the required CI checks pass and the branch is up to date.
-3. Create and publish a stable GitHub release targeting the merged commit, with a
-   tag matching `v<package.json version>`.
-4. Check the **Publish to npm** workflow and verify the published version with
+Releases go from `dev` to `main` through a temporary release branch:
+
+1. Open an issue for the release.
+2. From an up-to-date `dev`, create `release/vX.Y.Z`. On that branch only, update
+   the version in `package.json` and move the changelog entries from `Unreleased`
+   into the new version. A fix found while preparing the release goes on this branch
+   too.
+3. Open a pull request from `release/vX.Y.Z` into `main` and merge it with
+   **Create a merge commit**, never with squash: `main` then keeps every squashed
+   commit from `dev`, and Git sees `dev` as merged, so the next release does not
+   conflict. Merge only after the required CI checks pass and the branch is up to
+   date.
+4. Create and publish a stable GitHub release targeting that merge commit on `main`,
+   with a tag matching `v<package.json version>`.
+5. Check the **Publish to npm** workflow and verify the published version with
    `npm view nidalheim-voice-turn-pipeline version`.
+6. Bring the release back into `dev`: open a pull request from `main` into `dev` and
+   merge it with **Create a merge commit** (not squash), so `dev` gets the version
+   bump and the changelog. Then delete `release/vX.Y.Z`.
 
 The workflow checks the release version, typechecks, runs tests, builds, and packs
 the distribution. A separate job publishes that exact tarball using OIDC. Pull
