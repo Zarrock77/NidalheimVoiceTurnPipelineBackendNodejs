@@ -15,7 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 - `VoiceTurnSession` no longer drops microphone audio while the STT connection is being
   reopened for a new sample rate, and two `audio_config` messages sent back to back no
-  longer open two STT connections: they are now processed one at a time.
+  longer open two STT connections: they are now processed one at a time. A COMMIT received
+  while the connection reopens is finalized once the buffered audio has been sent.
 - `VoiceTurnSession` no longer writes the transcribed user speech to the console: the
   `stt final` log now reports only its length. The transcript is personal data and the
   library logs to the host's stdout.

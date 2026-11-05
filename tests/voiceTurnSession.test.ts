@@ -251,7 +251,7 @@ test("audio sent while STT reconfigures is buffered and delivered in order after
     const gate = deferred();
     stt.reconfigure.mockImplementationOnce(() => gate.promise);
     const config = session.onClientAudioConfig({ sample_rate: 16000 });
-    await idle();
+    await idle(); // the config body runs one microtask after the call, once the chain is reached
     const chunks = [Buffer.from([1, 1]), Buffer.from([2, 2]), Buffer.from([3, 3])];
     for (const c of chunks) session.onClientAudio(c);
     expect(stt.sendAudio).not.toHaveBeenCalled();
@@ -270,5 +270,24 @@ test("two audio_config messages sent back to back open a single STT connection",
     gate.resolve(); await Promise.all([first, second]);
     expect(stt.start).toHaveBeenCalledTimes(1);
     expect(stt.reconfigure).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("COMMIT during a reconfigure is finalized only after it resolves", async () => {
+  const { session, stt, events, close, onUtterance } = await fixture();
+  try {
+    const gate = deferred();
+    stt.reconfigure.mockImplementationOnce(() => gate.promise);
+    const config = session.onClientAudioConfig({ sample_rate: 16000 });
+    await idle(); // the config body runs one microtask after the call
+    session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit();
+    expect(stt.finalize).not.toHaveBeenCalled();
+    gate.resolve(); await config;
+    expect(stt.sendAudio).toHaveBeenCalledTimes(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("Apres reconfiguration", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(events.some(e => e.type === "error")).toBe(false);
+    expect(close).not.toHaveBeenCalled();
   } finally { session.shutdown(); }
 });

@@ -234,7 +234,7 @@ export class VoiceTurnSession {
   }
 
   private _finalizeInput(): void {
-    if (this.disposed || !this.commitRequested || !this._sttOpened) return;
+    if (this.disposed || !this.commitRequested || !this._sttOpened || this._awaitingFirstConfig) return;
     if (this._inputAudioProcessed()) this._flushUtterance();
     else if (!this.stt.finalize()) this._failInput(this.messages.sttDisconnected);
   }
