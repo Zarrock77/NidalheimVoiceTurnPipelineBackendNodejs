@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { VoiceTurnSession, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
+import { VoiceTurnSession, type VoiceTurnSessionConfig, DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS } from "../src/voiceTurnSession.js";
 import type { StreamingTTS } from "../src/speechTurn.js";
 import type { StreamingSTT, FinalTranscriptInfo } from "../src/types.js";
 
@@ -24,13 +24,13 @@ class FakeSTT implements StreamingSTT {
   get onFinal(): (text: string, final: boolean, info: PartialFinalInfo) => void {
     return (text, final, info) => this.finalHandler(text, final, { end: this.audioSecondsSent, ...info });
   }
-  onInterim = () => {}; onError = () => {}; onUtteranceEnd = () => {};
+  onInterim: (text: string) => void = () => {}; onError = () => {}; onUtteranceEnd = () => {};
   sampleRate = 48000; audioSecondsSent = 0; finalAudioSeconds = 0;
-  start = async () => {};
+  start = jest.fn(async () => {});
   sendAudio = jest.fn((b: Buffer) => { this.audioSecondsSent += b.length / 96000; });
   finalize = jest.fn(() => true);
   keepAlive = () => {}; close = () => {};
-  reconfigure = async () => {};
+  reconfigure = jest.fn(async (_opts: { sampleRate: number }) => {});
 }
 
 const idle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
@@ -40,7 +40,7 @@ const record = (session: VoiceTurnSession, stt: FakeSTT, text: string) => {
   stt.onFinal(text, true, { fromFinalize: true });
 };
 
-async function fixture(configure = true) {
+async function fixture(configure = true, extra: Partial<VoiceTurnSessionConfig> = {}) {
   const events: Record<string, unknown>[] = [];
   const close = jest.fn();
   const stt = new FakeSTT();
@@ -56,11 +56,14 @@ async function fixture(configure = true) {
     ttsRoute: { persistent: true, instance: tts },
     onUtterance,
     onTurnComplete,
+    ...extra,
   });
   await session.start();
   if (configure) await session.onClientAudioConfig({ sample_rate: 48000 });
   return { session, events, close, stt, tts, onUtterance, onTurnComplete };
 }
+
+const fixtureWith = (extra: Partial<VoiceTurnSessionConfig>) => fixture(true, extra);
 
 afterEach(() => { jest.useRealTimers(); });
 
@@ -226,4 +229,283 @@ test("silence completes without sending an empty request to the reply callback",
     session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit(); stt.onFinal("", true, { fromFinalize: true }); await idle();
     expect(onUtterance).not.toHaveBeenCalled(); expect(events.some(e => e.type === "error")).toBe(true);
   } finally { session.shutdown(); }
+});
+
+test("what the user said never reaches the console logs", async () => {
+  const log = jest.spyOn(console, "log").mockImplementation(() => {});
+  const { session, stt } = await fixture();
+  try {
+    record(session, stt, "Mot de passe: tournesol"); await idle();
+    const logged = log.mock.calls.map(args => args.join(" ")).join("\n");
+    expect(logged).not.toContain("tournesol");
+    expect(logged).toContain("stt final");
+  } finally { session.shutdown(); log.mockRestore(); }
+});
+
+test("audio chunks are not logged one by one", async () => {
+  const log = jest.spyOn(console, "log").mockImplementation(() => {});
+  const { session, stt } = await fixture();
+  try {
+    record(session, stt, "bonjour"); await idle();
+    const logged = log.mock.calls.map(args => args.join(" ")).join("\n");
+    expect(logged).not.toContain("audio chunk #");
+    expect(logged).toContain("commit received");
+  } finally { session.shutdown(); log.mockRestore(); }
+});
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+};
+
+test("audio sent while STT reconfigures is buffered and delivered in order after it resolves", async () => {
+  const { session, stt } = await fixture();
+  try {
+    const gate = deferred();
+    stt.reconfigure.mockImplementationOnce(() => gate.promise);
+    const config = session.onClientAudioConfig({ sample_rate: 16000 });
+    await idle(); // the config body runs one microtask after the call, once the chain is reached
+    const chunks = [Buffer.from([1, 1]), Buffer.from([2, 2]), Buffer.from([3, 3])];
+    for (const c of chunks) session.onClientAudio(c);
+    expect(stt.sendAudio).not.toHaveBeenCalled();
+    gate.resolve(); await config;
+    expect(stt.sendAudio.mock.calls.map(([b]) => b)).toEqual(chunks);
+  } finally { session.shutdown(); }
+});
+
+test("two audio_config messages sent back to back open a single STT connection", async () => {
+  const { session, stt } = await fixture(false);
+  try {
+    const gate = deferred();
+    stt.start.mockImplementationOnce(() => gate.promise);
+    const first = session.onClientAudioConfig({ sample_rate: 48000 });
+    const second = session.onClientAudioConfig({ sample_rate: 48000 });
+    gate.resolve(); await Promise.all([first, second]);
+    expect(stt.start).toHaveBeenCalledTimes(1);
+    expect(stt.reconfigure).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("COMMIT during a reconfigure is finalized only after it resolves", async () => {
+  const { session, stt, events, close, onUtterance } = await fixture();
+  try {
+    const gate = deferred();
+    stt.reconfigure.mockImplementationOnce(() => gate.promise);
+    const config = session.onClientAudioConfig({ sample_rate: 16000 });
+    await idle(); // the config body runs one microtask after the call
+    session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit();
+    expect(stt.finalize).not.toHaveBeenCalled();
+    gate.resolve(); await config;
+    expect(stt.sendAudio).toHaveBeenCalledTimes(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("Apres reconfiguration", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(events.some(e => e.type === "error")).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("silenceTimeoutMs commits the turn after silence following a speech_final", async () => {
+  jest.useFakeTimers();
+  const { session, stt, onUtterance } = await fixtureWith({ silenceTimeoutMs: 1000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(999);
+    expect(stt.finalize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true });
+    await Promise.resolve(); await Promise.resolve();
+    expect(onUtterance).toHaveBeenCalledWith("Bonjour", expect.any(Function));
+  } finally { session.shutdown(); }
+});
+
+test("silenceTimeoutMs is cancelled when the user resumes speaking", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ silenceTimeoutMs: 1000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(900);
+    stt.onInterim("et");
+    jest.advanceTimersByTime(5000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("without silenceTimeoutMs the turn never ends on its own", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({});
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Bonjour", true, { fromFinalize: false });
+    jest.advanceTimersByTime(60000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("maxTurnMs commits a turn that stays open without a client commit", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(29999);
+    expect(stt.finalize).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("maxTurnMs is cancelled by a client commit and does not fire twice", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({ maxTurnMs: 30000 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    session.onClientCommit();
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(60000 - 1);
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+  } finally { session.shutdown(); }
+});
+
+test("without maxTurnMs an open turn is never ended on its own", async () => {
+  jest.useFakeTimers();
+  const { session, stt } = await fixtureWith({});
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    jest.advanceTimersByTime(600000);
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("reaching maxTranscriptChars commits the turn and keeps the full text", async () => {
+  const { session, stt, onUtterance } = await fixture(true, { maxTranscriptChars: 10 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Un objet", false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+    stt.onFinal("secret", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("tres", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(onUtterance.mock.calls[0][0]).toBe("Un objet secret tres");
+  } finally { session.shutdown(); }
+});
+
+test("maxTranscriptChars is disabled by default", async () => {
+  const { session, stt } = await fixture();
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("x".repeat(5000), false, { fromFinalize: false });
+    expect(stt.finalize).not.toHaveBeenCalled();
+  } finally { session.shutdown(); }
+});
+
+test("speech after the automatic cut starts a second turn without committing the first twice", async () => {
+  const { session, stt, tts, onUtterance } = await fixture(true, { maxTranscriptChars: 10 });
+  try {
+    session.onClientAudio(Buffer.alloc(96000));
+    stt.onFinal("Un objet secret", false, { fromFinalize: false });
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    session.onClientAudio(Buffer.alloc(96000)); session.onClientCommit();
+    expect(stt.finalize).toHaveBeenCalledTimes(1);
+    stt.onFinal("", true, { fromFinalize: true }); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(1);
+    expect(stt.finalize).toHaveBeenCalledTimes(2);
+    tts.onAudio(Buffer.alloc(4800).toString("base64")); tts.onFinal(); await idle();
+    stt.onFinal("la suite", true, { fromFinalize: true }); await idle();
+    tts.onAudio(Buffer.alloc(4800).toString("base64")); tts.onFinal(); await idle();
+    expect(onUtterance).toHaveBeenCalledTimes(2);
+    expect(onUtterance.mock.calls.map(c => c[0])).toEqual(["Un objet secret", "la suite"]);
+  } finally { session.shutdown(); }
+});
+
+describe("utteranceTimeoutMs", () => {
+  const hang = (onUtterance: jest.Mock<(t: string, d: (x: string) => void) => Promise<string>>) => {
+    const late: { resolve: (s: string) => void; onDelta: (d: string) => void }[] = [];
+    onUtterance.mockImplementationOnce((_t, onDelta) => new Promise<string>((resolve) => { late.push({ resolve, onDelta }); }));
+    return late;
+  };
+
+  test("a hung reply times out, reports it and lets the next queued utterance run", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(0);
+      record(session, stt, "Deuxieme"); await jest.advanceTimersByTimeAsync(0);
+      expect(onUtterance).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(events).toContainEqual({ type: "error", message: "The reply took too long. Please try again." });
+      expect(onUtterance).toHaveBeenCalledTimes(2);
+      expect(onUtterance.mock.calls[1][0]).toBe("Deuxieme");
+      expect(events.filter(e => e.type === "text")).toEqual([{ type: "text", data: "Bonjour." }]);
+    } finally { session.shutdown(); }
+  });
+
+  test("the late result of a timed-out reply is ignored", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, tts, onUtterance, onTurnComplete } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      const late = hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(1000);
+      const texts = events.filter(e => e.type === "text").length;
+      late[0].onDelta("tard"); late[0].resolve("tard"); await jest.advanceTimersByTimeAsync(0);
+      expect(tts.sendText).not.toHaveBeenCalledWith("tard");
+      expect(events.filter(e => e.type === "text")).toHaveLength(texts);
+      expect(onTurnComplete).not.toHaveBeenCalled();
+    } finally { session.shutdown(); }
+  });
+
+  test("a fast reply is unaffected and leaves no timer behind", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, tts, onTurnComplete } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    record(session, stt, "Salut"); await jest.advanceTimersByTimeAsync(0);
+    tts.onFinal(); await jest.advanceTimersByTimeAsync(0);
+    expect(events.some(e => e.type === "error")).toBe(false);
+    expect(onTurnComplete).toHaveBeenCalledTimes(1);
+    session.shutdown();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("0 disables the timeout", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 0 });
+    try {
+      hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(events.some(e => e.type === "error")).toBe(false);
+    } finally { session.shutdown(); }
+  });
+
+  test("a reply that rejects after the timeout raises no second error and no unhandled rejection", async () => {
+    jest.useFakeTimers();
+    const unhandled = jest.fn();
+    process.on("unhandledRejection", unhandled);
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      let rejectLate!: (e: Error) => void;
+      onUtterance.mockImplementationOnce(() => new Promise<string>((_, reject) => { rejectLate = reject; }));
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(1000);
+      rejectLate(new Error("llm failed")); await jest.advanceTimersByTimeAsync(0);
+      jest.useRealTimers(); await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(events.filter(e => e.type === "error")).toEqual([{ type: "error", message: "The reply took too long. Please try again." }]);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally { process.off("unhandledRejection", unhandled); session.shutdown(); }
+  });
+
+  test.each([Infinity, NaN, -5, 2 ** 31])("an unusable timeout (%p) disables it instead of failing every reply", async (utteranceTimeoutMs) => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs });
+    try {
+      onUtterance.mockImplementationOnce(() => new Promise<string>((resolve) => { setTimeout(() => resolve("Bonjour."), 5); }));
+      record(session, stt, "Salut"); await jest.advanceTimersByTimeAsync(10);
+      expect(events.some(e => e.type === "error")).toBe(false);
+      expect(events).toContainEqual({ type: "text", data: "Bonjour." });
+    } finally { session.shutdown(); }
+  });
 });
