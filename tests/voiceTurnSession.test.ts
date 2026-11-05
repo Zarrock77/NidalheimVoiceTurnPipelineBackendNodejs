@@ -423,3 +423,89 @@ test("speech after the automatic cut starts a second turn without committing the
     expect(onUtterance.mock.calls.map(c => c[0])).toEqual(["Un objet secret", "la suite"]);
   } finally { session.shutdown(); }
 });
+
+describe("utteranceTimeoutMs", () => {
+  const hang = (onUtterance: jest.Mock<(t: string, d: (x: string) => void) => Promise<string>>) => {
+    const late: { resolve: (s: string) => void; onDelta: (d: string) => void }[] = [];
+    onUtterance.mockImplementationOnce((_t, onDelta) => new Promise<string>((resolve) => { late.push({ resolve, onDelta }); }));
+    return late;
+  };
+
+  test("a hung reply times out, reports it and lets the next queued utterance run", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(0);
+      record(session, stt, "Deuxieme"); await jest.advanceTimersByTimeAsync(0);
+      expect(onUtterance).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(events).toContainEqual({ type: "error", message: "The reply took too long. Please try again." });
+      expect(onUtterance).toHaveBeenCalledTimes(2);
+      expect(onUtterance.mock.calls[1][0]).toBe("Deuxieme");
+      expect(events.filter(e => e.type === "text")).toEqual([{ type: "text", data: "Bonjour." }]);
+    } finally { session.shutdown(); }
+  });
+
+  test("the late result of a timed-out reply is ignored", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, tts, onUtterance, onTurnComplete } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      const late = hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(1000);
+      const texts = events.filter(e => e.type === "text").length;
+      late[0].onDelta("tard"); late[0].resolve("tard"); await jest.advanceTimersByTimeAsync(0);
+      expect(tts.sendText).not.toHaveBeenCalledWith("tard");
+      expect(events.filter(e => e.type === "text")).toHaveLength(texts);
+      expect(onTurnComplete).not.toHaveBeenCalled();
+    } finally { session.shutdown(); }
+  });
+
+  test("a fast reply is unaffected and leaves no timer behind", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, tts, onTurnComplete } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    record(session, stt, "Salut"); await jest.advanceTimersByTimeAsync(0);
+    tts.onFinal(); await jest.advanceTimersByTimeAsync(0);
+    expect(events.some(e => e.type === "error")).toBe(false);
+    expect(onTurnComplete).toHaveBeenCalledTimes(1);
+    session.shutdown();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("0 disables the timeout", async () => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 0 });
+    try {
+      hang(onUtterance);
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+      expect(events.some(e => e.type === "error")).toBe(false);
+    } finally { session.shutdown(); }
+  });
+
+  test("a reply that rejects after the timeout raises no second error and no unhandled rejection", async () => {
+    jest.useFakeTimers();
+    const unhandled = jest.fn();
+    process.on("unhandledRejection", unhandled);
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs: 1000 });
+    try {
+      let rejectLate!: (e: Error) => void;
+      onUtterance.mockImplementationOnce(() => new Promise<string>((_, reject) => { rejectLate = reject; }));
+      record(session, stt, "Premiere"); await jest.advanceTimersByTimeAsync(1000);
+      rejectLate(new Error("llm failed")); await jest.advanceTimersByTimeAsync(0);
+      jest.useRealTimers(); await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(events.filter(e => e.type === "error")).toEqual([{ type: "error", message: "The reply took too long. Please try again." }]);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally { process.off("unhandledRejection", unhandled); session.shutdown(); }
+  });
+
+  test.each([Infinity, NaN, -5, 2 ** 31])("an unusable timeout (%p) disables it instead of failing every reply", async (utteranceTimeoutMs) => {
+    jest.useFakeTimers();
+    const { session, events, stt, onUtterance } = await fixture(true, { utteranceTimeoutMs });
+    try {
+      onUtterance.mockImplementationOnce(() => new Promise<string>((resolve) => { setTimeout(() => resolve("Bonjour."), 5); }));
+      record(session, stt, "Salut"); await jest.advanceTimersByTimeAsync(10);
+      expect(events.some(e => e.type === "error")).toBe(false);
+      expect(events).toContainEqual({ type: "text", data: "Bonjour." });
+    } finally { session.shutdown(); }
+  });
+});

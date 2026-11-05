@@ -21,6 +21,12 @@ adheres to [Semantic Versioning](https://semver.org/).
   `shutdown()`, including a disconnect in the middle of a reply.
 - Tests for the ElevenLabs provider: final audio, unexpected close, error messages, audio
   forwarding, stale sockets and text framing.
+- `utteranceTimeoutMs` option (default 60000) and `replyTimeout` message: a hung
+  `onUtterance` no longer blocks the conversation. On expiry the turn is cancelled, the
+  client receives an error, the next queued utterance starts and the late result is ignored.
+  **Behaviour change:** replies that take longer than 60 s are now cut by default. Set
+  `utteranceTimeoutMs: 0` to disable the timeout (so does any non-finite, non-positive or
+  above-2147483647 value). `VoiceTurnSessionMessages` gains the required key `replyTimeout`.
 
 ### Fixed
 - `VoiceTurnSession` no longer drops microphone audio while the STT connection is being

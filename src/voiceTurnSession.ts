@@ -17,6 +17,7 @@ export interface VoiceTurnSessionMessages {
   noSpeechRecognized: string;
   tooManyQueuedUtterances: string;
   voiceTurnInterrupted: string;
+  replyTimeout: string;
   ttsInterrupted: string;
   /** Prefix for a mid-utterance STT error: `${prefix}: ${err.message}`. */
   sttInputErrorPrefix: string;
@@ -32,6 +33,7 @@ const DEFAULT_MESSAGES: VoiceTurnSessionMessages = {
   noSpeechRecognized: "No speech was recognized. Please try your sentence again.",
   tooManyQueuedUtterances: "Too many pending voice requests. Please wait for the reply.",
   voiceTurnInterrupted: "The voice turn was interrupted.",
+  replyTimeout: "The reply took too long. Please try again.",
   ttsInterrupted: "TTS generation was interrupted. Please try again.",
   sttInputErrorPrefix: "speech-to-text",
   sttSetupErrorPrefix: "stt",
@@ -39,8 +41,10 @@ const DEFAULT_MESSAGES: VoiceTurnSessionMessages = {
 
 export const DEFAULT_KEEPALIVE_INTERVAL_MS = 8000;
 export const DEFAULT_INPUT_FINALIZATION_TIMEOUT_MS = 5000;
+export const DEFAULT_UTTERANCE_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_QUEUED_AUDIO_SECONDS = 15;
 const MAX_PENDING_UTTERANCES = 4;
+const MAX_TIMER_MS = 2147483647; // setTimeout's limit; larger values fire after 1 ms
 
 export interface VoiceTurnSessionConfig {
   /**
@@ -89,6 +93,13 @@ export interface VoiceTurnSessionConfig {
    * Speech after the cut starts a new turn. Default: 0 (disabled).
    */
   maxTranscriptChars?: number;
+  /**
+   * Longest time `onUtterance` may take to resolve. On expiry the turn is cancelled, the
+   * client gets the `replyTimeout` error, the next queued utterance starts, and anything the
+   * late call still produces is ignored. Default: 60000. 0 disables the timeout; so does any
+   * value that is not a finite number in (0, 2147483647] (e.g. `Infinity`, `NaN`, negatives).
+   */
+  utteranceTimeoutMs?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
 }
 
@@ -115,6 +126,7 @@ export class VoiceTurnSession {
   private maxTurnTimer: NodeJS.Timeout | null = null;
   private readonly maxQueuedAudioSeconds: number;
   private readonly maxTranscriptChars: number;
+  private readonly utteranceTimeoutMs: number;
   private readonly messages: VoiceTurnSessionMessages;
 
   private utteranceInFlight = false;
@@ -130,6 +142,7 @@ export class VoiceTurnSession {
   private queuedInputBytes = 0;
   private disposed = false;
   private keepAliveTimer: NodeJS.Timeout | null = null;
+  private utteranceTimer: NodeJS.Timeout | null = null;
   private _awaitingFirstConfig = true;
   private _preConfigBuffer: Buffer[] | null = null;
   private _sttOpened = false;
@@ -149,6 +162,8 @@ export class VoiceTurnSession {
     this.maxTurnMs = config.maxTurnMs ?? 0;
     this.maxQueuedAudioSeconds = config.maxQueuedAudioSeconds ?? DEFAULT_MAX_QUEUED_AUDIO_SECONDS;
     this.maxTranscriptChars = config.maxTranscriptChars ?? 0;
+    const timeoutMs = config.utteranceTimeoutMs ?? DEFAULT_UTTERANCE_TIMEOUT_MS;
+    this.utteranceTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_TIMER_MS ? timeoutMs : 0;
     this.messages = { ...DEFAULT_MESSAGES, ...(config.messages ?? {}) };
   }
 
@@ -386,6 +401,7 @@ export class VoiceTurnSession {
     const t0 = Date.now();
     const mark = (step: string): void => console.log(`[${this.label}] +${Date.now() - t0}ms ${step}`);
     let speech: SpeechTurn | null = null;
+    let timedOut = false;
     try {
       const tts = this.ttsRoute.persistent ? this.ttsRoute.instance : this.ttsRoute.create();
       const turn = new SpeechTurn(tts, (event) => this._send(event), !this.ttsRoute.persistent,
@@ -394,13 +410,18 @@ export class VoiceTurnSession {
       mark("reply call");
       let firstDeltaAt: number | null = null;
 
-      const full = await this.onUtterance(userText, (delta) => {
+      const call = this.onUtterance(userText, (delta) => {
         if (!firstDeltaAt) {
           firstDeltaAt = Date.now();
           mark("first reply delta");
         }
         turn.write(delta);
       });
+      const full = this.utteranceTimeoutMs > 0
+        ? await Promise.race([call, new Promise<never>((_, reject) => {
+            this.utteranceTimer = setTimeout(() => { timedOut = true; reject(new Error("reply timeout")); }, this.utteranceTimeoutMs);
+          })]).finally(() => this._clearUtteranceTimer())
+        : await call;
       if (this.disposed) return;
       mark("reply complete");
       this._send({ type: "text", data: full });
@@ -414,7 +435,7 @@ export class VoiceTurnSession {
       ]);
     } catch (err) {
       speech?.cancel();
-      this._send({ type: "error", message: this.messages.voiceTurnInterrupted });
+      this._send({ type: "error", message: timedOut ? this.messages.replyTimeout : this.messages.voiceTurnInterrupted });
       console.error(`[${this.label}] voice turn failed`, (err as Error)?.message);
     } finally {
       // Also wait for connection cleanup on failure before reusing a persistent provider.
@@ -424,6 +445,11 @@ export class VoiceTurnSession {
       const next = this.pendingUtterances.shift();
       if (next && !this.disposed) void this._handleUtterance(next);
     }
+  }
+
+  private _clearUtteranceTimer(): void {
+    if (this.utteranceTimer) clearTimeout(this.utteranceTimer);
+    this.utteranceTimer = null;
   }
 
   private _send(obj: Record<string, unknown>): void {
@@ -438,6 +464,7 @@ export class VoiceTurnSession {
     this.finalizationTimer = null;
     this._clearSilenceTimer();
     this._clearMaxTurnTimer();
+    this._clearUtteranceTimer();
     this.queuedInput.length = 0;
     this.queuedInputBytes = 0;
     this._preConfigBuffer = null;
