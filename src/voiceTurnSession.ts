@@ -74,7 +74,7 @@ export interface VoiceTurnSessionConfig {
   /**
    * Commits the turn on its own once the recognized text of the open input reaches this
    * many characters, as if the client had sent COMMIT. The text is kept, not truncated.
-   * Default: 0 (disabled).
+   * Speech after the cut starts a new turn. Default: 0 (disabled).
    */
   maxTranscriptChars?: number;
   messages?: Partial<VoiceTurnSessionMessages>;
